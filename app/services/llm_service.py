@@ -1,13 +1,14 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import logging
+import re
 from asyncio import sleep
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from openai import AsyncOpenAI
-from openai import APIConnectionError, APITimeoutError, RateLimitError
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
 from pydantic import ValidationError
 
 from app.core.settings import get_settings
@@ -57,7 +58,9 @@ class LLMService:
         )
 
     async def build_command(self, user_text: str, now: datetime | None = None) -> AssistantCommand:
-        now = now or datetime.now(timezone.utc)
+        settings = get_settings()
+        local_tz = ZoneInfo(settings.app_timezone)
+        now = now or datetime.now(local_tz)
         if self._circuit_breaker.is_open(now):
             raise LLMCircuitOpenError("LLM circuit breaker is open")
         if not self._cost_guard.can_spend(estimated_usd=0.001, now=now):
@@ -75,7 +78,8 @@ class LLMService:
                             "content": (
                                 "Пользовательский запрос: "
                                 f"{user_text}\n"
-                                f"Текущее время UTC: {now.isoformat()}\n"
+                                f"Текущее локальное время ({settings.app_timezone}): {now.isoformat()}\n"
+                                "Интерпретируй время пользователя в этом часовом поясе.\n"
                                 "Верни только JSON команды."
                             ),
                         },
@@ -106,14 +110,16 @@ class LLMService:
         for threshold in self._cost_guard.get_new_alert_thresholds(now):
             logger.warning("LLM budget threshold reached: %s%%", threshold)
         raw_output = (response.output_text or "").strip()
+        logger.info("LLM raw output: %s", raw_output)
         return parse_assistant_command(raw_output)
 
 
 def parse_assistant_command(raw_output: str | dict[str, Any]) -> AssistantCommand:
     payload: dict[str, Any]
     if isinstance(raw_output, str):
+        cleaned = _normalize_llm_json_text(raw_output)
         try:
-            payload = json.loads(raw_output)
+            payload = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise LLMCommandValidationError("LLM output is not valid JSON") from exc
     else:
@@ -122,4 +128,13 @@ def parse_assistant_command(raw_output: str | dict[str, Any]) -> AssistantComman
     try:
         return assistant_command_adapter.validate_python(payload)
     except ValidationError as exc:
+        logger.warning("LLM schema validation failed. payload=%s errors=%s", payload, exc.errors())
         raise LLMCommandValidationError("LLM command does not match schema") from exc
+
+
+def _normalize_llm_json_text(text: str) -> str:
+    value = text.strip()
+    fenced = re.match(r"^```(?:json)?\s*(.*?)\s*```$", value, flags=re.DOTALL | re.IGNORECASE)
+    if fenced:
+        value = fenced.group(1).strip()
+    return value

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+﻿from datetime import date, datetime, timezone
 
 import pytest
 
@@ -57,3 +57,23 @@ def test_specific_date_without_time_uses_8am() -> None:
     resolved = resolve_default_run_at(reminder, now)
     assert resolved == datetime(2026, 2, 23, 8, 0, tzinfo=timezone.utc)
 
+
+def test_weekday_string_and_time_field_are_supported() -> None:
+    payload = {
+        "command": "create_reminders",
+        "reminders": [
+            {
+                "text": "созвон с командой",
+                "day_reference": "weekday",
+                "weekday": "wednesday",
+                "explicit_time_provided": True,
+                "time": "10:30",
+            }
+        ],
+    }
+    command = parse_assistant_command(payload)
+    reminder = command.reminders[0]
+    assert reminder.weekday == 2
+    now = datetime(2026, 2, 22, 11, 0, tzinfo=timezone.utc)  # Sunday
+    resolved = resolve_default_run_at(reminder, now)
+    assert resolved == datetime(2026, 2, 25, 10, 30, tzinfo=timezone.utc)

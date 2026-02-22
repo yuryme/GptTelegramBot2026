@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.reminder import Reminder, ReminderStatus
@@ -91,6 +91,38 @@ class ReminderRepository:
         if not reminder_ids:
             return 0
         stmt = delete(Reminder).where(Reminder.id.in_(reminder_ids))
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        return result.rowcount or 0
+
+    async def list_due_pending(self, until_dt: datetime, limit: int = 100) -> list[Reminder]:
+        stmt = (
+            select(Reminder)
+            .where(Reminder.status == ReminderStatus.pending, Reminder.run_at <= until_dt)
+            .order_by(Reminder.run_at.asc(), Reminder.id.asc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def mark_done(self, reminder_ids: list[int]) -> int:
+        if not reminder_ids:
+            return 0
+        stmt = (
+            update(Reminder)
+            .where(Reminder.id.in_(reminder_ids))
+            .values(status=ReminderStatus.done)
+        )
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        return result.rowcount or 0
+
+    async def reschedule(self, reminder_id: int, next_run_at: datetime) -> int:
+        stmt = (
+            update(Reminder)
+            .where(Reminder.id == reminder_id)
+            .values(run_at=next_run_at, status=ReminderStatus.pending)
+        )
         result = await self._session.execute(stmt)
         await self._session.commit()
         return result.rowcount or 0

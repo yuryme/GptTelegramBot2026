@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
+from app.core.settings import get_settings
 from app.models.reminder import ReminderStatus
 from app.repositories.reminder_repository import ReminderRepository
 from app.schemas.commands import (
@@ -44,10 +46,15 @@ class ReminderService:
         command: CreateRemindersCommand,
         now: datetime | None = None,
     ) -> list[CreatedReminderResult]:
-        now = now or datetime.now(timezone.utc)
+        settings = get_settings()
+        local_tz = ZoneInfo(settings.app_timezone)
+        now = now or datetime.now(local_tz)
         payload = []
         for reminder in command.reminders:
             run_at = resolve_default_run_at(reminder, now)
+            if run_at.tzinfo is None:
+                run_at = run_at.replace(tzinfo=local_tz)
+            run_at = run_at.astimezone(timezone.utc)
             payload.append(
                 {
                     "chat_id": chat_id,
@@ -74,7 +81,9 @@ class ReminderService:
         command: ListRemindersCommand,
         now: datetime | None = None,
     ) -> list[ReminderListItem]:
-        now = now or datetime.now(timezone.utc)
+        settings = get_settings()
+        local_tz = ZoneInfo(settings.app_timezone)
+        now = now or datetime.now(local_tz)
         status = command.status
         search_text = command.search_text
         from_dt = command.from_dt

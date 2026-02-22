@@ -27,6 +27,7 @@ class ReminderInput(BaseModel):
     recurrence_rule: str | None = Field(default=None, max_length=255)
     day_reference: DayReference | None = None
     weekday: int | None = Field(default=None, ge=0, le=6)
+    time_value: str | None = Field(default=None, validation_alias="time")
     date_value: date | None = None
     explicit_time_provided: bool = False
 
@@ -48,6 +49,35 @@ class ReminderInput(BaseModel):
             raise ValueError("date_value is required when day_reference=specific_date")
 
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_weekday(cls, data: dict) -> dict:
+        value = data.get("weekday")
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            weekdays = {
+                "monday": 0,
+                "tuesday": 1,
+                "wednesday": 2,
+                "thursday": 3,
+                "friday": 4,
+                "saturday": 5,
+                "sunday": 6,
+                "понедельник": 0,
+                "вторник": 1,
+                "среда": 2,
+                "среду": 2,
+                "четверг": 3,
+                "пятница": 4,
+                "пятницу": 4,
+                "суббота": 5,
+                "субботу": 5,
+                "воскресенье": 6,
+            }
+            if normalized in weekdays:
+                data["weekday"] = weekdays[normalized]
+        return data
 
 
 class CreateRemindersCommand(BaseModel):
@@ -121,4 +151,24 @@ def resolve_default_run_at(reminder: ReminderInput, now: datetime) -> datetime:
     else:
         raise ValueError("Unsupported day_reference")
 
-    return datetime.combine(day_date, time(hour=8, minute=0), tzinfo=now.tzinfo or timezone.utc)
+    default_time = time(hour=8, minute=0)
+    if reminder.explicit_time_provided and reminder.time_value:
+        parsed = _parse_time_text(reminder.time_value)
+        if parsed is not None:
+            default_time = parsed
+    return datetime.combine(day_date, default_time, tzinfo=now.tzinfo or timezone.utc)
+
+
+def _parse_time_text(value: str) -> time | None:
+    raw = value.strip().replace(".", ":").replace("-", ":")
+    parts = raw.split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= hours <= 23 and 0 <= minutes <= 59):
+        return None
+    return time(hour=hours, minute=minutes)

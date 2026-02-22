@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    app_timezone: str = "Europe/Moscow"
 
     telegram_bot_token: str = Field(default="test-token")
     telegram_webhook_secret: str = Field(default="dev-secret")
