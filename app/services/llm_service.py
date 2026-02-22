@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from asyncio import sleep
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -66,6 +66,32 @@ class LLMService:
         if not self._cost_guard.can_spend(estimated_usd=0.001, now=now):
             raise LLMBudgetExceededError("Monthly LLM budget exceeded")
 
+        raw_output = await self._request_primary_command(user_text=user_text, now=now)
+        try:
+            command = parse_assistant_command(raw_output)
+        except LLMCommandValidationError:
+            recovered = await self._recover_command_json_with_llm(user_text=user_text, raw_output=raw_output, now=now)
+            if recovered is None:
+                raise
+            command = recovered
+
+        if self._should_refine_list_command(command):
+            refined = await self._refine_list_command_with_llm(user_text=user_text, command=command, now=now)
+            if refined is not None:
+                command = refined
+        if command.command == CommandName.list_items and command.search_text:
+            normalized_search = await self._normalize_search_text_with_llm(
+                user_text=user_text,
+                current_search_text=command.search_text,
+                now=now,
+            )
+            if normalized_search:
+                command = command.model_copy(update={"search_text": normalized_search})
+
+        return command
+
+    async def _request_primary_command(self, *, user_text: str, now: datetime) -> str:
+        settings = get_settings()
         response = None
         for attempt in range(2):
             try:
@@ -109,10 +135,153 @@ class LLMService:
         )
         for threshold in self._cost_guard.get_new_alert_thresholds(now):
             logger.warning("LLM budget threshold reached: %s%%", threshold)
+
         raw_output = (response.output_text or "").strip()
         logger.info("LLM raw output: %s", raw_output)
-        command = parse_assistant_command(raw_output)
-        return _enforce_explicit_filters(user_text=user_text, command=command, now=now)
+        return raw_output
+
+    def _should_refine_list_command(self, command: AssistantCommand) -> bool:
+        if command.command != CommandName.list_items:
+            return False
+        if command.mode != "all":
+            return False
+        return command.search_text is None and command.from_dt is None and command.to_dt is None and command.status is None
+
+    async def _refine_list_command_with_llm(
+        self,
+        *,
+        user_text: str,
+        command: AssistantCommand,
+        now: datetime,
+    ) -> AssistantCommand | None:
+        settings = get_settings()
+        prompt = (
+            "Ты уточняешь команду list_reminders по естественному тексту пользователя. "
+            "Верни только валидный JSON команды list_reminders в одной из форм mode: "
+            "all/today/status/search/range. "
+            "Если в тексте есть фильтр по слову, заполни search_text. "
+            "Если в тексте есть период или дата, заполни from_dt/to_dt и mode=range. "
+            "Не выдумывай фильтры, которых нет в тексте."
+        )
+        base_json = json.dumps(command.model_dump(mode="json"), ensure_ascii=False)
+        try:
+            response = await self._client.responses.create(
+                model=self._model,
+                input=[
+                    {"role": "system", "content": prompt},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Пользовательский запрос: {user_text}\n"
+                            f"Текущее локальное время ({settings.app_timezone}): {now.isoformat()}\n"
+                            f"Текущая команда: {base_json}"
+                        ),
+                    },
+                ],
+                temperature=0,
+            )
+        except Exception:
+            logger.exception("Failed to refine list command with LLM")
+            return None
+
+        refined_raw = (response.output_text or "").strip()
+        logger.info("LLM refined list raw output: %s", refined_raw)
+        try:
+            refined = parse_assistant_command(refined_raw)
+        except LLMCommandValidationError:
+            logger.warning("Refined list output is invalid: %s", refined_raw)
+            return None
+
+        if refined.command != CommandName.list_items:
+            logger.warning("Refined command has unexpected type: %s", refined.command)
+            return None
+        return refined
+
+    async def _recover_command_json_with_llm(
+        self,
+        *,
+        user_text: str,
+        raw_output: str,
+        now: datetime,
+    ) -> AssistantCommand | None:
+        settings = get_settings()
+        prompt = (
+            "Исправь ответ модели в строго валидный JSON команды для схемы AssistantCommand. "
+            "Разрешенные command: create_reminders, list_reminders, delete_reminders. "
+            "Никакого markdown, только JSON."
+        )
+        try:
+            response = await self._client.responses.create(
+                model=self._model,
+                input=[
+                    {"role": "system", "content": prompt},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Пользовательский запрос: {user_text}\n"
+                            f"Текущее локальное время ({settings.app_timezone}): {now.isoformat()}\n"
+                            f"Невалидный ответ модели: {raw_output}"
+                        ),
+                    },
+                ],
+                temperature=0,
+            )
+        except Exception:
+            logger.exception("Failed to recover invalid command JSON with LLM")
+            return None
+
+        fixed_output = (response.output_text or "").strip()
+        logger.info("LLM recovered raw output: %s", fixed_output)
+        try:
+            return parse_assistant_command(fixed_output)
+        except LLMCommandValidationError:
+            logger.warning("Recovered output is still invalid: %s", fixed_output)
+            return None
+
+    async def _normalize_search_text_with_llm(
+        self,
+        *,
+        user_text: str,
+        current_search_text: str,
+        now: datetime,
+    ) -> str | None:
+        settings = get_settings()
+        prompt = (
+            "Ты нормализуешь search_text для поиска напоминаний. "
+            "Верни только JSON: {\"search_text\":\"...\"}. "
+            "Задача: вернуть короткую основу (стем) 4-8 символов, чтобы один поиск покрывал словоформы "
+            "(например, Сергей/Сергея/Сергеем -> серге). "
+            "Возвращай только основу в нижнем регистре, без пробелов и без лишних слов."
+        )
+        try:
+            response = await self._client.responses.create(
+                model=self._model,
+                input=[
+                    {"role": "system", "content": prompt},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Пользовательский запрос: {user_text}\n"
+                            f"Текущее локальное время ({settings.app_timezone}): {now.isoformat()}\n"
+                            f"Текущий search_text: {current_search_text}"
+                        ),
+                    },
+                ],
+                temperature=0,
+            )
+        except Exception:
+            logger.exception("Failed to normalize search_text with LLM")
+            return None
+
+        raw = (response.output_text or "").strip()
+        logger.info("LLM search normalize raw output: %s", raw)
+        try:
+            payload = json.loads(_normalize_llm_json_text(raw))
+            value = str(payload.get("search_text", "")).strip().lower()
+            return value or None
+        except Exception:
+            logger.warning("Invalid search normalize JSON: %s", raw)
+            return None
 
 
 def parse_assistant_command(raw_output: str | dict[str, Any]) -> AssistantCommand:
@@ -139,150 +308,3 @@ def _normalize_llm_json_text(text: str) -> str:
     if fenced:
         value = fenced.group(1).strip()
     return value
-
-
-def _extract_search_text_hint(user_text: str) -> str | None:
-    text = user_text.strip()
-    patterns = [
-        r"(?:где\s+упомина(?:ется|ются)|где\s+есть|содержит|по\s+слову)\s+[\"«]?([^\"»]+?)[\"»]?(?:[?.!,]|$)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if not match:
-            continue
-        value = match.group(1).strip()
-        if value:
-            return value
-    return None
-
-
-def _enforce_explicit_filters(user_text: str, command: AssistantCommand, now: datetime) -> AssistantCommand:
-    if command.command != CommandName.list_items:
-        return command
-    date_range = _extract_date_range_hint(user_text=user_text, now=now)
-    if date_range and command.from_dt is None and command.to_dt is None:
-        command = command.model_copy(
-            update={"mode": "range", "from_dt": date_range[0], "to_dt": date_range[1]}
-        )
-    search_hint = _extract_search_text_hint(user_text)
-    if not search_hint or command.search_text:
-        return command
-    update: dict[str, Any] = {"search_text": search_hint}
-    if command.mode != "range":
-        update["mode"] = "search"
-    return command.model_copy(update=update)
-
-
-def _extract_date_range_hint(user_text: str, now: datetime) -> tuple[datetime, datetime] | None:
-    text = user_text.strip().lower()
-    month_map = {
-        "января": 1,
-        "февраля": 2,
-        "марта": 3,
-        "апреля": 4,
-        "мая": 5,
-        "июня": 6,
-        "июля": 7,
-        "августа": 8,
-        "сентября": 9,
-        "октября": 10,
-        "ноября": 11,
-        "декабря": 12,
-    }
-
-    def day_bounds(year: int, month: int, day: int, *, roll_year_if_past: bool) -> tuple[datetime, datetime] | None:
-        try:
-            day_start = datetime(year, month, day, 0, 0, 0, 0, tzinfo=now.tzinfo)
-            if roll_year_if_past and day_start.date() < now.date():
-                day_start = datetime(year + 1, month, day, 0, 0, 0, 0, tzinfo=now.tzinfo)
-            return day_start, day_start + timedelta(days=1) - timedelta(microseconds=1)
-        except ValueError:
-            return None
-
-    # относительные периоды
-    if "сегодня" in text:
-        return day_bounds(now.year, now.month, now.day, roll_year_if_past=False)
-    if "послезавтра" in text:
-        target = now + timedelta(days=2)
-        return day_bounds(target.year, target.month, target.day, roll_year_if_past=False)
-    if "завтра" in text:
-        target = now + timedelta(days=1)
-        return day_bounds(target.year, target.month, target.day, roll_year_if_past=False)
-
-    if "на этой неделе" in text:
-        start = datetime.combine((now - timedelta(days=now.weekday())).date(), datetime.min.time(), tzinfo=now.tzinfo)
-        return start, start + timedelta(days=7) - timedelta(microseconds=1)
-    if "на следующей неделе" in text:
-        start = datetime.combine((now - timedelta(days=now.weekday()) + timedelta(days=7)).date(), datetime.min.time(), tzinfo=now.tzinfo)
-        return start, start + timedelta(days=7) - timedelta(microseconds=1)
-
-    if "в этом месяце" in text:
-        start = datetime(now.year, now.month, 1, tzinfo=now.tzinfo)
-        next_month = datetime(now.year + (1 if now.month == 12 else 0), 1 if now.month == 12 else now.month + 1, 1, tzinfo=now.tzinfo)
-        return start, next_month - timedelta(microseconds=1)
-    if "в следующем месяце" in text:
-        year = now.year + (1 if now.month == 12 else 0)
-        month = 1 if now.month == 12 else now.month + 1
-        start = datetime(year, month, 1, tzinfo=now.tzinfo)
-        next_month = datetime(year + (1 if month == 12 else 0), 1 if month == 12 else month + 1, 1, tzinfo=now.tzinfo)
-        return start, next_month - timedelta(microseconds=1)
-
-    # "в диапазоне 24-26 февраля", "24 - 26 февраля", "с 24 по 26 февраля"
-    m = re.search(
-        r"(?:в\s+диапазоне\s+|с\s+)?(\d{1,2})\s*(?:-|–|—|по|до|и)\s*(\d{1,2})\s+([а-я]+)(?:\s+(\d{4}))?\b",
-        text,
-        flags=re.IGNORECASE,
-    )
-    if m:
-        d1 = int(m.group(1))
-        d2 = int(m.group(2))
-        month = month_map.get(m.group(3).lower())
-        year = int(m.group(4)) if m.group(4) else now.year
-        if month:
-            left = day_bounds(year, month, min(d1, d2), roll_year_if_past=m.group(4) is None)
-            right = day_bounds(year, month, max(d1, d2), roll_year_if_past=m.group(4) is None)
-            if left and right:
-                return left[0], right[1]
-
-    # "с 24 февраля по 26 февраля"
-    m = re.search(
-        r"с\s+(\d{1,2})\s+([а-я]+)(?:\s+(\d{4}))?\s+по\s+(\d{1,2})\s+([а-я]+)(?:\s+(\d{4}))?\b",
-        text,
-        flags=re.IGNORECASE,
-    )
-    if m:
-        d1, d2 = int(m.group(1)), int(m.group(4))
-        m1, m2 = month_map.get(m.group(2).lower()), month_map.get(m.group(5).lower())
-        y1 = int(m.group(3)) if m.group(3) else now.year
-        y2 = int(m.group(6)) if m.group(6) else y1
-        if m1 and m2:
-            left = day_bounds(y1, m1, d1, roll_year_if_past=m.group(3) is None)
-            right = day_bounds(y2, m2, d2, roll_year_if_past=m.group(6) is None)
-            if left and right:
-                return left[0], right[1]
-
-    # "на 24 февраля" / "на 24 февраля 2026"
-    m = re.search(r"\bна\s+(\d{1,2})\s+([а-я]+)(?:\s+(\d{4}))?\b", text, flags=re.IGNORECASE)
-    if m:
-        day = int(m.group(1))
-        month = month_map.get(m.group(2).lower())
-        year = int(m.group(3)) if m.group(3) else now.year
-        if month:
-            return day_bounds(year, month, day, roll_year_if_past=m.group(3) is None)
-
-    # "на 24.02" / "на 24.02.2026", "с 24.02 по 26.02"
-    m = re.search(r"\bс\s+(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\s+по\s+(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b", text)
-    if m:
-        y1 = int(m.group(3)) if m.group(3) else now.year
-        y2 = int(m.group(6)) if m.group(6) else y1
-        left = day_bounds(y1, int(m.group(2)), int(m.group(1)), roll_year_if_past=m.group(3) is None)
-        right = day_bounds(y2, int(m.group(5)), int(m.group(4)), roll_year_if_past=m.group(6) is None)
-        if left and right:
-            return left[0], right[1]
-
-    m = re.search(r"\bна\s+(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b", text, flags=re.IGNORECASE)
-    if m:
-        year = int(m.group(3)) if m.group(3) else now.year
-        return day_bounds(year, int(m.group(2)), int(m.group(1)), roll_year_if_past=m.group(3) is None)
-
-    return None
