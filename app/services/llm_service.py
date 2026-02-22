@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from asyncio import sleep
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from app.core.settings import get_settings
 from app.llm.prompts import SYSTEM_PROMPT_RU
-from app.schemas.commands import AssistantCommand, assistant_command_adapter
+from app.schemas.commands import AssistantCommand, CommandName, assistant_command_adapter
 from app.services.cost_control import MonthlyCostGuard
 from app.services.guardrails import LLMCircuitBreaker
 
@@ -111,7 +111,8 @@ class LLMService:
             logger.warning("LLM budget threshold reached: %s%%", threshold)
         raw_output = (response.output_text or "").strip()
         logger.info("LLM raw output: %s", raw_output)
-        return parse_assistant_command(raw_output)
+        command = parse_assistant_command(raw_output)
+        return _enforce_explicit_filters(user_text=user_text, command=command, now=now)
 
 
 def parse_assistant_command(raw_output: str | dict[str, Any]) -> AssistantCommand:
@@ -138,3 +139,150 @@ def _normalize_llm_json_text(text: str) -> str:
     if fenced:
         value = fenced.group(1).strip()
     return value
+
+
+def _extract_search_text_hint(user_text: str) -> str | None:
+    text = user_text.strip()
+    patterns = [
+        r"(?:где\s+упомина(?:ется|ются)|где\s+есть|содержит|по\s+слову)\s+[\"«]?([^\"»]+?)[\"»]?(?:[?.!,]|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        value = match.group(1).strip()
+        if value:
+            return value
+    return None
+
+
+def _enforce_explicit_filters(user_text: str, command: AssistantCommand, now: datetime) -> AssistantCommand:
+    if command.command != CommandName.list_items:
+        return command
+    date_range = _extract_date_range_hint(user_text=user_text, now=now)
+    if date_range and command.from_dt is None and command.to_dt is None:
+        command = command.model_copy(
+            update={"mode": "range", "from_dt": date_range[0], "to_dt": date_range[1]}
+        )
+    search_hint = _extract_search_text_hint(user_text)
+    if not search_hint or command.search_text:
+        return command
+    update: dict[str, Any] = {"search_text": search_hint}
+    if command.mode != "range":
+        update["mode"] = "search"
+    return command.model_copy(update=update)
+
+
+def _extract_date_range_hint(user_text: str, now: datetime) -> tuple[datetime, datetime] | None:
+    text = user_text.strip().lower()
+    month_map = {
+        "января": 1,
+        "февраля": 2,
+        "марта": 3,
+        "апреля": 4,
+        "мая": 5,
+        "июня": 6,
+        "июля": 7,
+        "августа": 8,
+        "сентября": 9,
+        "октября": 10,
+        "ноября": 11,
+        "декабря": 12,
+    }
+
+    def day_bounds(year: int, month: int, day: int, *, roll_year_if_past: bool) -> tuple[datetime, datetime] | None:
+        try:
+            day_start = datetime(year, month, day, 0, 0, 0, 0, tzinfo=now.tzinfo)
+            if roll_year_if_past and day_start.date() < now.date():
+                day_start = datetime(year + 1, month, day, 0, 0, 0, 0, tzinfo=now.tzinfo)
+            return day_start, day_start + timedelta(days=1) - timedelta(microseconds=1)
+        except ValueError:
+            return None
+
+    # относительные периоды
+    if "сегодня" in text:
+        return day_bounds(now.year, now.month, now.day, roll_year_if_past=False)
+    if "послезавтра" in text:
+        target = now + timedelta(days=2)
+        return day_bounds(target.year, target.month, target.day, roll_year_if_past=False)
+    if "завтра" in text:
+        target = now + timedelta(days=1)
+        return day_bounds(target.year, target.month, target.day, roll_year_if_past=False)
+
+    if "на этой неделе" in text:
+        start = datetime.combine((now - timedelta(days=now.weekday())).date(), datetime.min.time(), tzinfo=now.tzinfo)
+        return start, start + timedelta(days=7) - timedelta(microseconds=1)
+    if "на следующей неделе" in text:
+        start = datetime.combine((now - timedelta(days=now.weekday()) + timedelta(days=7)).date(), datetime.min.time(), tzinfo=now.tzinfo)
+        return start, start + timedelta(days=7) - timedelta(microseconds=1)
+
+    if "в этом месяце" in text:
+        start = datetime(now.year, now.month, 1, tzinfo=now.tzinfo)
+        next_month = datetime(now.year + (1 if now.month == 12 else 0), 1 if now.month == 12 else now.month + 1, 1, tzinfo=now.tzinfo)
+        return start, next_month - timedelta(microseconds=1)
+    if "в следующем месяце" in text:
+        year = now.year + (1 if now.month == 12 else 0)
+        month = 1 if now.month == 12 else now.month + 1
+        start = datetime(year, month, 1, tzinfo=now.tzinfo)
+        next_month = datetime(year + (1 if month == 12 else 0), 1 if month == 12 else month + 1, 1, tzinfo=now.tzinfo)
+        return start, next_month - timedelta(microseconds=1)
+
+    # "в диапазоне 24-26 февраля", "24 - 26 февраля", "с 24 по 26 февраля"
+    m = re.search(
+        r"(?:в\s+диапазоне\s+|с\s+)?(\d{1,2})\s*(?:-|–|—|по|до|и)\s*(\d{1,2})\s+([а-я]+)(?:\s+(\d{4}))?\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        d1 = int(m.group(1))
+        d2 = int(m.group(2))
+        month = month_map.get(m.group(3).lower())
+        year = int(m.group(4)) if m.group(4) else now.year
+        if month:
+            left = day_bounds(year, month, min(d1, d2), roll_year_if_past=m.group(4) is None)
+            right = day_bounds(year, month, max(d1, d2), roll_year_if_past=m.group(4) is None)
+            if left and right:
+                return left[0], right[1]
+
+    # "с 24 февраля по 26 февраля"
+    m = re.search(
+        r"с\s+(\d{1,2})\s+([а-я]+)(?:\s+(\d{4}))?\s+по\s+(\d{1,2})\s+([а-я]+)(?:\s+(\d{4}))?\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        d1, d2 = int(m.group(1)), int(m.group(4))
+        m1, m2 = month_map.get(m.group(2).lower()), month_map.get(m.group(5).lower())
+        y1 = int(m.group(3)) if m.group(3) else now.year
+        y2 = int(m.group(6)) if m.group(6) else y1
+        if m1 and m2:
+            left = day_bounds(y1, m1, d1, roll_year_if_past=m.group(3) is None)
+            right = day_bounds(y2, m2, d2, roll_year_if_past=m.group(6) is None)
+            if left and right:
+                return left[0], right[1]
+
+    # "на 24 февраля" / "на 24 февраля 2026"
+    m = re.search(r"\bна\s+(\d{1,2})\s+([а-я]+)(?:\s+(\d{4}))?\b", text, flags=re.IGNORECASE)
+    if m:
+        day = int(m.group(1))
+        month = month_map.get(m.group(2).lower())
+        year = int(m.group(3)) if m.group(3) else now.year
+        if month:
+            return day_bounds(year, month, day, roll_year_if_past=m.group(3) is None)
+
+    # "на 24.02" / "на 24.02.2026", "с 24.02 по 26.02"
+    m = re.search(r"\bс\s+(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\s+по\s+(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b", text)
+    if m:
+        y1 = int(m.group(3)) if m.group(3) else now.year
+        y2 = int(m.group(6)) if m.group(6) else y1
+        left = day_bounds(y1, int(m.group(2)), int(m.group(1)), roll_year_if_past=m.group(3) is None)
+        right = day_bounds(y2, int(m.group(5)), int(m.group(4)), roll_year_if_past=m.group(6) is None)
+        if left and right:
+            return left[0], right[1]
+
+    m = re.search(r"\bна\s+(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b", text, flags=re.IGNORECASE)
+    if m:
+        year = int(m.group(3)) if m.group(3) else now.year
+        return day_bounds(year, int(m.group(2)), int(m.group(1)), roll_year_if_past=m.group(3) is None)
+
+    return None
