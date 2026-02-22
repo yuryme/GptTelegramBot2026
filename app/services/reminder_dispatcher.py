@@ -1,12 +1,13 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from calendar import monthrange
+from datetime import datetime, timezone
 from typing import Protocol
 
 from aiogram import Bot
 
+from app.core.internal_reminders import unwrap_internal_text
 from app.db.session import SessionLocal
 from app.repositories.reminder_repository import ReminderRepository
 
@@ -51,9 +52,11 @@ def compute_next_run_at(current_run_at: datetime, recurrence_rule: str | None) -
 
     if freq == "DAILY":
         from datetime import timedelta
+
         return current_run_at + timedelta(days=interval)
     if freq == "WEEKLY":
         from datetime import timedelta
+
         return current_run_at + timedelta(weeks=interval)
     if freq == "MONTHLY":
         return _add_months(current_run_at, interval)
@@ -76,7 +79,7 @@ async def dispatch_due_with_repository(
     rescheduled_count = 0
     for item in due_items:
         try:
-            await bot.send_message(chat_id=item.chat_id, text=f"Напоминание: {item.text}")
+            await bot.send_message(chat_id=item.chat_id, text=f"Напоминание: {unwrap_internal_text(item.text)}")
             next_run_at = compute_next_run_at(item.run_at, getattr(item, "recurrence_rule", None))
             if next_run_at is None:
                 sent_once_ids.append(item.id)

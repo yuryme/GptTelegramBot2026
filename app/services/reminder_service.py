@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from app.core.internal_reminders import build_pre_reminder_text, is_internal_pre_reminder, unwrap_internal_text
 from app.core.settings import get_settings
 from app.models.reminder import ReminderStatus
 from app.repositories.reminder_repository import ReminderRepository
@@ -52,14 +53,25 @@ class ReminderService:
         payload = []
         for reminder in command.reminders:
             run_at = resolve_default_run_at(reminder, now)
-            if run_at.tzinfo is None:
-                run_at = run_at.replace(tzinfo=local_tz)
-            run_at = run_at.astimezone(timezone.utc)
+            run_at_local = run_at.replace(tzinfo=local_tz) if run_at.tzinfo is None else run_at
+            run_at_utc = run_at_local.astimezone(timezone.utc)
+            tomorrow_date = (now + timedelta(days=1)).date()
+
+            if run_at_local.date() >= tomorrow_date:
+                payload.append(
+                    {
+                        "chat_id": chat_id,
+                        "text": build_pre_reminder_text(reminder.text),
+                        "run_at": run_at_utc - timedelta(hours=1),
+                        "recurrence_rule": reminder.recurrence_rule,
+                    }
+                )
+
             payload.append(
                 {
                     "chat_id": chat_id,
                     "text": reminder.text,
-                    "run_at": run_at,
+                    "run_at": run_at_utc,
                     "recurrence_rule": reminder.recurrence_rule,
                 }
             )
@@ -68,11 +80,12 @@ class ReminderService:
         return [
             CreatedReminderResult(
                 id=item.id,
-                text=item.text,
+                text=unwrap_internal_text(item.text),
                 run_at=item.run_at,
                 recurrence_rule=item.recurrence_rule,
             )
             for item in created
+            if not is_internal_pre_reminder(item.text)
         ]
 
     async def list_from_command(

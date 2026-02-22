@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.internal_reminders import INTERNAL_PRE_REMINDER_PREFIX
 from app.models.reminder import Reminder, ReminderStatus
 
 
@@ -47,7 +48,10 @@ class ReminderRepository:
         from_dt: datetime | None = None,
         to_dt: datetime | None = None,
     ) -> list[Reminder]:
-        stmt = select(Reminder).where(Reminder.chat_id == chat_id)
+        stmt = select(Reminder).where(
+            Reminder.chat_id == chat_id,
+            ~Reminder.text.startswith(INTERNAL_PRE_REMINDER_PREFIX),
+        )
 
         if status:
             stmt = stmt.where(Reminder.status == ReminderStatus(status))
@@ -72,7 +76,10 @@ class ReminderRepository:
         from_dt: datetime | None = None,
         to_dt: datetime | None = None,
     ) -> list[Reminder]:
-        stmt = select(Reminder).where(Reminder.chat_id == chat_id)
+        stmt = select(Reminder).where(
+            Reminder.chat_id == chat_id,
+            ~Reminder.text.startswith(INTERNAL_PRE_REMINDER_PREFIX),
+        )
 
         if status:
             stmt = stmt.where(Reminder.status == ReminderStatus(status))

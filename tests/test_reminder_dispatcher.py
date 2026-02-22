@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.core.internal_reminders import build_pre_reminder_text
 from app.services.reminder_dispatcher import dispatch_due_with_repository
 
 
@@ -107,3 +108,21 @@ async def test_dispatch_due_reschedules_daily_rule() -> None:
     rid, next_run = repo.rescheduled[0]
     assert rid == 5
     assert next_run == datetime(2026, 2, 23, 10, 40, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_strips_internal_prefix_in_user_message() -> None:
+    repo = FakeRepo(
+        [
+            FakeReminder(
+                id=1,
+                chat_id=42,
+                text=build_pre_reminder_text("купить молоко"),
+                run_at=datetime(2026, 2, 22, 10, 40, tzinfo=timezone.utc),
+            )
+        ]
+    )
+    bot = FakeBot()
+
+    await dispatch_due_with_repository(repository=repo, bot=bot, now=datetime(2026, 2, 22, 10, 40, tzinfo=timezone.utc))
+    assert bot.sent == [(42, "Напоминание: купить молоко")]

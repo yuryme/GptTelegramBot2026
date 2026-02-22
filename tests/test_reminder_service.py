@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from app.core.internal_reminders import INTERNAL_PRE_REMINDER_PREFIX
 from app.schemas.commands import CreateRemindersCommand
 from app.services.reminder_service import ReminderService
 
@@ -39,6 +40,9 @@ async def test_create_multiple_with_default_time_rules() -> None:
     assert len(created) == 2
     assert created[0].run_at == datetime(2026, 2, 21, 11, 0, tzinfo=timezone.utc)
     assert created[1].run_at == datetime(2026, 2, 22, 8, 0, tzinfo=timezone.utc)
+    assert len(repo.saved_payload) == 3
+    assert repo.saved_payload[1]["text"].startswith(INTERNAL_PRE_REMINDER_PREFIX)
+    assert repo.saved_payload[1]["run_at"] == datetime(2026, 2, 22, 7, 0, tzinfo=timezone.utc)
 
 
 async def test_create_with_recurrence_rule() -> None:
@@ -59,4 +63,30 @@ async def test_create_with_recurrence_rule() -> None:
     )
     created = await service.create_from_command(chat_id=123, command=cmd)
     assert len(created) == 1
+    assert created[0].run_at == datetime(2026, 2, 23, 9, 0, tzinfo=timezone.utc)
     assert created[0].recurrence_rule == "FREQ=DAILY"
+    assert len(repo.saved_payload) == 2
+    assert repo.saved_payload[0]["text"].startswith(INTERNAL_PRE_REMINDER_PREFIX)
+    assert repo.saved_payload[0]["run_at"] == datetime(2026, 2, 23, 8, 0, tzinfo=timezone.utc)
+
+
+async def test_create_today_single_notification_only() -> None:
+    repo = FakeRepository()
+    service = ReminderService(repo)
+    cmd = CreateRemindersCommand.model_validate(
+        {
+            "command": "create_reminders",
+            "reminders": [
+                {
+                    "text": "Позвонить сегодня",
+                    "run_at": "2026-02-21T16:00:00+00:00",
+                    "explicit_time_provided": True,
+                }
+            ],
+        }
+    )
+    now = datetime(2026, 2, 21, 10, 15, tzinfo=timezone.utc)
+    created = await service.create_from_command(chat_id=123, command=cmd, now=now)
+
+    assert len(created) == 1
+    assert created[0].run_at == datetime(2026, 2, 21, 16, 0, tzinfo=timezone.utc)
