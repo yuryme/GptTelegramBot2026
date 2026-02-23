@@ -11,15 +11,28 @@ class FakeReminder:
         self.text = data["text"]
         self.run_at = data["run_at"]
         self.recurrence_rule = data.get("recurrence_rule")
+        self.series_id = data.get("series_id")
 
 
 class FakeRepository:
     def __init__(self) -> None:
         self.saved_payload: list[dict] = []
+        self.created_series: list[dict] = []
 
     async def create_many(self, items):
         self.saved_payload = list(items)
         return [FakeReminder(i + 1, item) for i, item in enumerate(items)]
+
+    async def create_series(self, *, series_id: str, chat_id: int, source_text: str, recurrence_rule: str):
+        self.created_series.append(
+            {
+                "series_id": series_id,
+                "chat_id": chat_id,
+                "source_text": source_text,
+                "recurrence_rule": recurrence_rule,
+            }
+        )
+        return None
 
 
 async def test_create_multiple_with_default_time_rules() -> None:
@@ -63,12 +76,39 @@ async def test_create_with_recurrence_rule() -> None:
     )
     now = datetime(2026, 2, 22, 10, 15, tzinfo=timezone.utc)
     created = await service.create_from_command(chat_id=123, command=cmd, now=now)
-    assert len(created) == 1
+    assert len(created) == 7
     assert created[0].run_at == datetime(2026, 2, 23, 9, 0, tzinfo=timezone.utc)
-    assert created[0].recurrence_rule == "FREQ=DAILY"
-    assert len(repo.saved_payload) == 2
+    assert created[-1].run_at == datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
+    assert created[0].recurrence_rule is None
+    assert len(repo.saved_payload) == 14
+    assert len(repo.created_series) == 1
+    assert repo.created_series[0]["recurrence_rule"] == "FREQ=DAILY"
+    assert repo.saved_payload[0]["series_id"] is not None
     assert repo.saved_payload[0]["text"].startswith(INTERNAL_PRE_REMINDER_PREFIX)
     assert repo.saved_payload[0]["run_at"] == datetime(2026, 2, 23, 8, 0, tzinfo=timezone.utc)
+
+
+async def test_create_keeps_explicit_recurrence_until() -> None:
+    repo = FakeRepository()
+    service = ReminderService(repo)
+    cmd = CreateRemindersCommand.model_validate(
+        {
+            "command": "create_reminders",
+            "reminders": [
+                {
+                    "text": "Почасовой контроль",
+                    "run_at": "2026-02-23T09:00:00+00:00",
+                    "recurrence_rule": "FREQ=HOURLY;UNTIL=2026-02-23T15:00:00+00:00",
+                    "explicit_time_provided": True,
+                }
+            ],
+        }
+    )
+    now = datetime(2026, 2, 22, 10, 15, tzinfo=timezone.utc)
+    created = await service.create_from_command(chat_id=123, command=cmd, now=now)
+    assert len(created) == 24
+    assert created[0].recurrence_rule is None
+    assert len(repo.created_series) == 1
 
 
 async def test_create_today_single_notification_only() -> None:

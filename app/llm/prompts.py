@@ -16,7 +16,8 @@
 - Для list_reminders mode один из: all/today/status/search/range.
 - Для delete_reminders mode один из: filter/last_n.
 - Для delete_reminders без фильтров запрещено массовое удаление, если не указан confirm_delete_all=true.
-- Для удаления по статусу используй поле status (pending/done/canceled), не используй ключи вроде filter_status.
+- Для удаления по статусу используй поле status (pending/done/deleted), не используй ключи вроде filter_status.
+- Для удаления по номеру напоминания используй поле reminder_id (например, #20 -> reminder_id=20).
 
 Правила интерпретации времени:
 1) Если пользователь дал точную дату/время, заполняй run_at в ISO-формате.
@@ -25,6 +26,12 @@
    - "сегодня" => day_reference="today", explicit_time_provided=false.
    - будущие дни => day_reference (tomorrow/day_after_tomorrow/weekday/specific_date), explicit_time_provided=false.
 4) Не используй расплывчатые времена ("вечером", "перед обедом") как точные.
+5) Для циклических напоминаний обязательно формируй recurrence_rule.
+6) Если пользователь не задал период окончания цикла, добавляй UNTIL по правилам:
+   - FREQ=HOURLY -> в течение 1 дня от первой даты.
+   - FREQ=DAILY -> в течение 1 недели от первой даты.
+   - FREQ=WEEKLY -> в течение 1 месяца от первой даты.
+   - FREQ=MONTHLY -> в течение 1 года от первой даты.
 
 Правила выбора команды:
 - Фразы типа "напомни/напомнить ..." обычно create_reminders.
@@ -61,6 +68,10 @@
 Пользователь: "Удалить выполненные напоминания"
 Ответ:
 {"command":"delete_reminders","mode":"filter","status":"done"}
+
+Пользователь: "Удалить напоминание #20"
+Ответ:
+{"command":"delete_reminders","mode":"filter","reminder_id":20}
 
 Пользователь: "Удали все напоминания"
 Ответ:

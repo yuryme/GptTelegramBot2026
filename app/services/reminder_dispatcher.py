@@ -2,7 +2,7 @@
 
 import logging
 from calendar import monthrange
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from aiogram import Bot
@@ -51,16 +51,43 @@ def compute_next_run_at(current_run_at: datetime, recurrence_rule: str | None) -
         interval = 1
 
     if freq == "DAILY":
-        from datetime import timedelta
+        candidate = current_run_at + timedelta(days=interval)
+    elif freq == "HOURLY":
+        candidate = current_run_at + timedelta(hours=interval)
+    elif freq == "WEEKLY":
+        candidate = current_run_at + timedelta(weeks=interval)
+    elif freq == "MONTHLY":
+        candidate = _add_months(current_run_at, interval)
+    else:
+        return None
 
-        return current_run_at + timedelta(days=interval)
-    if freq == "WEEKLY":
-        from datetime import timedelta
+    until_raw = parts.get("UNTIL")
+    if not until_raw:
+        return candidate
+    until_dt = _parse_until(until_raw, reference=current_run_at)
+    if until_dt is None:
+        return candidate
+    if candidate > until_dt:
+        return None
+    return candidate
 
-        return current_run_at + timedelta(weeks=interval)
-    if freq == "MONTHLY":
-        return _add_months(current_run_at, interval)
-    return None
+
+def _parse_until(until_raw: str, reference: datetime) -> datetime | None:
+    raw = until_raw.strip()
+    if raw.endswith("Z"):
+        compact = raw[:-1]
+        for fmt in ("%Y%m%dT%H%M%S", "%Y%m%dT%H%M"):
+            try:
+                return datetime.strptime(compact, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=reference.tzinfo or timezone.utc)
+    return parsed
 
 
 async def dispatch_due_with_repository(

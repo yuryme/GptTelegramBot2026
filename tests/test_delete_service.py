@@ -24,7 +24,10 @@ class FakeDeleteRepository:
 
     async def list_items(self, chat_id: int, **kwargs):
         self.filter_calls.append((chat_id, kwargs))
-        return self.filter_result
+        reminder_id = kwargs.get("reminder_id")
+        if reminder_id is None:
+            return self.filter_result
+        return [item for item in self.filter_result if item.id == reminder_id]
 
     async def list_last_n(self, chat_id: int, n: int, **kwargs):
         self.last_n_calls.append((chat_id, n, kwargs))
@@ -93,3 +96,18 @@ async def test_delete_all_requires_explicit_confirmation() -> None:
     result = await service.delete_from_command(chat_id=1, command=cmd)
     assert result.deleted_count == 1
     assert repo.deleted_ids == [1]
+
+
+async def test_delete_by_reminder_id() -> None:
+    repo = FakeDeleteRepository()
+    repo.filter_result = [
+        FakeDeleteRecord(20, "pending", "A", datetime(2026, 2, 24, 9, 0, tzinfo=timezone.utc)),
+        FakeDeleteRecord(21, "pending", "B", datetime(2026, 2, 24, 10, 0, tzinfo=timezone.utc)),
+    ]
+    service = ReminderService(repo)  # type: ignore[arg-type]
+    cmd = DeleteRemindersCommand.model_validate(
+        {"command": "delete_reminders", "mode": "filter", "reminder_id": 20}
+    )
+    result = await service.delete_from_command(chat_id=1, command=cmd)
+    assert result.deleted_count == 1
+    assert repo.deleted_ids == [20]

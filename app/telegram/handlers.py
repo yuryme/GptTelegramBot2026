@@ -1,5 +1,6 @@
 ﻿from aiogram import F, Router
 from aiogram.types import Message
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from app.core.settings import get_settings
@@ -34,6 +35,7 @@ def _format_status(status: str) -> str:
     mapping = {
         "pending": "в ожидании",
         "done": "выполнено",
+        "deleted": "удалено",
     }
     return mapping.get(status, status)
 
@@ -70,10 +72,21 @@ async def on_text_message(message: Message) -> None:
 
         if command.command == CommandName.create:
             created = await service.create_from_command(chat_id=message.chat.id, command=command)
-            lines = ["Напоминания созданы:"]
+            if not created:
+                await message.answer("Напоминания не созданы.")
+                return
+            await service._repository.log_action(
+                action_id=str(uuid4()),
+                chat_id=message.chat.id,
+                action_type="create",
+                target_scope="multi" if len(created) > 1 else "single",
+                source_text=message.text,
+                parsed_command=command.model_dump(mode="json"),
+                result_stats={"created": len(created), "matched": len(created), "changed": len(created)},
+            )
+            lines = ["Созданные напоминания:"]
             for idx, item in enumerate(created, start=1):
-                rec = f", повтор: {item.recurrence_rule}" if item.recurrence_rule else ""
-                lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}{rec}")
+                lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")
                 lines.append(f"   {item.text}")
             await message.answer("\n".join(lines))
             return
@@ -83,6 +96,15 @@ async def on_text_message(message: Message) -> None:
             if not items:
                 await message.answer("Напоминания не найдены.")
                 return
+            await service._repository.log_action(
+                action_id=str(uuid4()),
+                chat_id=message.chat.id,
+                action_type="list",
+                target_scope="multi",
+                source_text=message.text,
+                parsed_command=command.model_dump(mode="json"),
+                result_stats={"matched": len(items), "created": 0, "changed": 0},
+            )
             lines = ["Найденные напоминания:"]
             for idx, item in enumerate(items, start=1):
                 rec = f", повтор: {item.recurrence_rule}" if item.recurrence_rule else ""
@@ -96,6 +118,15 @@ async def on_text_message(message: Message) -> None:
             if deleted.deleted_count == 0:
                 await message.answer("Подходящие напоминания не найдены, ничего не удалено.")
                 return
+            await service._repository.log_action(
+                action_id=str(uuid4()),
+                chat_id=message.chat.id,
+                action_type="delete",
+                target_scope="multi" if deleted.deleted_count > 1 else "single",
+                source_text=message.text,
+                parsed_command=command.model_dump(mode="json"),
+                result_stats={"matched": len(deleted.items), "created": 0, "changed": deleted.deleted_count},
+            )
             lines = [f"Удалено напоминаний: {deleted.deleted_count}"]
             for idx, item in enumerate(deleted.items, start=1):
                 lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")

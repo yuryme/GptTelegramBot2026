@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.internal_reminders import build_pre_reminder_text
-from app.services.reminder_dispatcher import dispatch_due_with_repository
+from app.services.reminder_dispatcher import compute_next_run_at, dispatch_due_with_repository
 
 
 @dataclass
@@ -49,9 +49,7 @@ class FakeBot:
 
 @pytest.mark.asyncio
 async def test_dispatch_due_sends_and_marks_done() -> None:
-    repo = FakeRepo(
-        [FakeReminder(id=1, chat_id=42, text="купить молоко", run_at=datetime(2026, 2, 22, 10, 40, tzinfo=timezone.utc))]
-    )
+    repo = FakeRepo([FakeReminder(id=1, chat_id=42, text="buy milk", run_at=datetime(2026, 2, 22, 10, 40, tzinfo=timezone.utc))])
     bot = FakeBot()
 
     sent_count = await dispatch_due_with_repository(
@@ -63,7 +61,7 @@ async def test_dispatch_due_sends_and_marks_done() -> None:
     assert sent_count == 1
     assert repo.done_ids == [1]
     assert repo.rescheduled == []
-    assert bot.sent == [(42, "Напоминание: купить молоко")]
+    assert bot.sent == [(42, "Напоминание: buy milk")]
 
 
 @pytest.mark.asyncio
@@ -117,7 +115,7 @@ async def test_dispatch_strips_internal_prefix_in_user_message() -> None:
             FakeReminder(
                 id=1,
                 chat_id=42,
-                text=build_pre_reminder_text("купить молоко"),
+                text=build_pre_reminder_text("buy milk"),
                 run_at=datetime(2026, 2, 22, 10, 40, tzinfo=timezone.utc),
             )
         ]
@@ -125,4 +123,16 @@ async def test_dispatch_strips_internal_prefix_in_user_message() -> None:
     bot = FakeBot()
 
     await dispatch_due_with_repository(repository=repo, bot=bot, now=datetime(2026, 2, 22, 10, 40, tzinfo=timezone.utc))
-    assert bot.sent == [(42, "Напоминание: купить молоко")]
+    assert bot.sent == [(42, "Напоминание: buy milk")]
+
+
+def test_compute_next_run_at_hourly_within_until() -> None:
+    current = datetime(2026, 2, 23, 10, 0, tzinfo=timezone.utc)
+    rule = "FREQ=HOURLY;UNTIL=2026-02-23T12:00:00+00:00"
+    assert compute_next_run_at(current, rule) == datetime(2026, 2, 23, 11, 0, tzinfo=timezone.utc)
+
+
+def test_compute_next_run_at_returns_none_after_until() -> None:
+    current = datetime(2026, 2, 23, 12, 0, tzinfo=timezone.utc)
+    rule = "FREQ=HOURLY;UNTIL=2026-02-23T12:00:00+00:00"
+    assert compute_next_run_at(current, rule) is None

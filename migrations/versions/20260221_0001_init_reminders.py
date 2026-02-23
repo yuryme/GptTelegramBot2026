@@ -17,7 +17,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    status_enum = sa.Enum("pending", "done", "canceled", name="reminder_status")
+    status_enum = sa.Enum("pending", "done", "deleted", name="reminder_status")
 
     op.create_table(
         "reminders",
@@ -38,4 +38,4 @@ def downgrade() -> None:
     op.drop_index("ix_reminders_run_at", table_name="reminders")
     op.drop_index("ix_reminders_chat_id", table_name="reminders")
     op.drop_table("reminders")
-    sa.Enum("pending", "done", "canceled", name="reminder_status").drop(op.get_bind(), checkfirst=True)
+    sa.Enum("pending", "done", "deleted", name="reminder_status").drop(op.get_bind(), checkfirst=True)

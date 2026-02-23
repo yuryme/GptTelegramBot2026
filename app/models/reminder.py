@@ -10,7 +10,8 @@ from app.db.base import Base
 class ReminderStatus(str, Enum):
     pending = "pending"
     done = "done"
-    canceled = "canceled"
+    deleted = "deleted"
+    canceled = "canceled"  # legacy value kept for backward compatibility
 
 
 class Reminder(Base):
@@ -26,8 +27,8 @@ class Reminder(Base):
         nullable=False,
     )
     recurrence_rule: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    series_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
     )
-

@@ -88,7 +88,7 @@ class CreateRemindersCommand(BaseModel):
 class ListRemindersCommand(BaseModel):
     command: Literal[CommandName.list_items]
     mode: Literal["all", "today", "status", "search", "range"] = "all"
-    status: Literal["pending", "done", "canceled"] | None = None
+    status: Literal["pending", "done", "deleted"] | None = None
     search_text: str | None = None
     from_dt: datetime | None = None
     to_dt: datetime | None = None
@@ -98,8 +98,9 @@ class DeleteRemindersCommand(BaseModel):
     command: Literal[CommandName.delete]
     mode: Literal["filter", "last_n"] = "filter"
     last_n: int | None = Field(default=None, ge=1, le=100)
+    reminder_id: int | None = Field(default=None, ge=1)
     confirm_delete_all: bool = False
-    status: Literal["pending", "done", "canceled"] | None = None
+    status: Literal["pending", "done", "deleted"] | None = None
     search_text: str | None = None
     from_dt: datetime | None = None
     to_dt: datetime | None = None
@@ -111,6 +112,7 @@ class DeleteRemindersCommand(BaseModel):
         if self.mode == "filter":
             has_filter = any(
                 (
+                    self.reminder_id is not None,
                     self.status is not None,
                     self.search_text is not None,
                     self.from_dt is not None,

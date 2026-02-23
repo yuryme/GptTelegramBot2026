@@ -316,4 +316,9 @@ def _normalize_legacy_command_payload(payload: dict[str, Any]) -> dict[str, Any]
     if normalized.get("command") == "delete_reminders":
         if "status" not in normalized and "filter_status" in normalized:
             normalized["status"] = normalized.get("filter_status")
+        if "reminder_id" not in normalized:
+            if "id" in normalized:
+                normalized["reminder_id"] = normalized.get("id")
+            elif "reminderId" in normalized:
+                normalized["reminder_id"] = normalized.get("reminderId")
     return normalized
