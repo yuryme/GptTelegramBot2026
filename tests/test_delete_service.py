@@ -40,6 +40,11 @@ def test_delete_schema_requires_last_n_for_last_mode() -> None:
         DeleteRemindersCommand.model_validate({"command": "delete_reminders", "mode": "last_n"})
 
 
+def test_delete_schema_blocks_implicit_delete_all() -> None:
+    with pytest.raises(Exception):
+        DeleteRemindersCommand.model_validate({"command": "delete_reminders", "mode": "filter"})
+
+
 async def test_delete_by_filter() -> None:
     repo = FakeDeleteRepository()
     repo.filter_result = [
@@ -74,3 +79,17 @@ async def test_delete_last_n() -> None:
     assert result.deleted_count == 2
     assert repo.deleted_ids == [10, 11]
     assert repo.last_n_calls[0][1] == 2
+
+
+async def test_delete_all_requires_explicit_confirmation() -> None:
+    repo = FakeDeleteRepository()
+    repo.filter_result = [
+        FakeDeleteRecord(1, "pending", "A", datetime(2026, 2, 24, 9, 0, tzinfo=timezone.utc)),
+    ]
+    service = ReminderService(repo)  # type: ignore[arg-type]
+    cmd = DeleteRemindersCommand.model_validate(
+        {"command": "delete_reminders", "mode": "filter", "confirm_delete_all": True}
+    )
+    result = await service.delete_from_command(chat_id=1, command=cmd)
+    assert result.deleted_count == 1
+    assert repo.deleted_ids == [1]

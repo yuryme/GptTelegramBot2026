@@ -131,6 +131,17 @@ class ReminderService:
         chat_id: int,
         command: DeleteRemindersCommand,
     ) -> DeletedReminderResult:
+        # Fail-safe: never delete all reminders implicitly.
+        if (
+            command.mode == "filter"
+            and not command.confirm_delete_all
+            and command.status is None
+            and command.search_text is None
+            and command.from_dt is None
+            and command.to_dt is None
+        ):
+            return DeletedReminderResult(deleted_count=0, items=[])
+
         if command.mode == "last_n":
             selected = await self._repository.list_last_n(
                 chat_id=chat_id,

@@ -98,6 +98,7 @@ class DeleteRemindersCommand(BaseModel):
     command: Literal[CommandName.delete]
     mode: Literal["filter", "last_n"] = "filter"
     last_n: int | None = Field(default=None, ge=1, le=100)
+    confirm_delete_all: bool = False
     status: Literal["pending", "done", "canceled"] | None = None
     search_text: str | None = None
     from_dt: datetime | None = None
@@ -107,6 +108,17 @@ class DeleteRemindersCommand(BaseModel):
     def validate_delete_mode(self) -> "DeleteRemindersCommand":
         if self.mode == "last_n" and self.last_n is None:
             raise ValueError("last_n is required when mode=last_n")
+        if self.mode == "filter":
+            has_filter = any(
+                (
+                    self.status is not None,
+                    self.search_text is not None,
+                    self.from_dt is not None,
+                    self.to_dt is not None,
+                )
+            )
+            if not has_filter and not self.confirm_delete_all:
+                raise ValueError("At least one filter is required unless confirm_delete_all=true")
         return self
 
 

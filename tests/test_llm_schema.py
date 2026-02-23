@@ -32,6 +32,13 @@ def test_parse_invalid_schema_raises() -> None:
         parse_assistant_command({"command": "create_reminders", "reminders": []})
 
 
+def test_parse_delete_with_legacy_filter_status_key() -> None:
+    payload = {"command": "delete_reminders", "mode": "filter", "filter_status": "done"}
+    command = parse_assistant_command(payload)
+    assert command.command == "delete_reminders"
+    assert command.status == "done"
+
+
 def test_today_without_time_uses_next_hour() -> None:
     now = datetime(2026, 2, 21, 10, 15, tzinfo=timezone.utc)
     reminder = ReminderInput(text="Тест", day_reference=DayReference.today, explicit_time_provided=False)

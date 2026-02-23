@@ -294,6 +294,7 @@ def parse_assistant_command(raw_output: str | dict[str, Any]) -> AssistantComman
             raise LLMCommandValidationError("LLM output is not valid JSON") from exc
     else:
         payload = raw_output
+    payload = _normalize_legacy_command_payload(payload)
 
     try:
         return assistant_command_adapter.validate_python(payload)
@@ -308,3 +309,11 @@ def _normalize_llm_json_text(text: str) -> str:
     if fenced:
         value = fenced.group(1).strip()
     return value
+
+
+def _normalize_legacy_command_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    if normalized.get("command") == "delete_reminders":
+        if "status" not in normalized and "filter_status" in normalized:
+            normalized["status"] = normalized.get("filter_status")
+    return normalized

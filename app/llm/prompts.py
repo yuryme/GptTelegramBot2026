@@ -15,6 +15,8 @@
 - Для create_reminders поле reminders обязательно и не пустое.
 - Для list_reminders mode один из: all/today/status/search/range.
 - Для delete_reminders mode один из: filter/last_n.
+- Для delete_reminders без фильтров запрещено массовое удаление, если не указан confirm_delete_all=true.
+- Для удаления по статусу используй поле status (pending/done/canceled), не используй ключи вроде filter_status.
 
 Правила интерпретации времени:
 1) Если пользователь дал точную дату/время, заполняй run_at в ISO-формате.
@@ -28,6 +30,7 @@
 - Фразы типа "напомни/напомнить ..." обычно create_reminders.
 - Фразы типа "покажи/список/какие напоминания" обычно list_reminders.
 - Фразы типа "удали/удалить" обычно delete_reminders.
+- Фразы "удали все напоминания", "очисти все напоминания" => delete_reminders с mode="filter" и confirm_delete_all=true.
 - Если пользователь просит фильтрацию по слову/упоминанию (например: "где упоминается X", "содержит X", "по слову X"),
   возвращай list_reminders с заполненным search_text="X".
 - Если пользователь просит список за день/интервал дат (например: "на 24 февраля", "в диапазоне 24-26 февраля",
@@ -54,4 +57,12 @@
 Пользователь: "Удали последние 3 напоминания"
 Ответ:
 {"command":"delete_reminders","mode":"last_n","last_n":3}
+
+Пользователь: "Удалить выполненные напоминания"
+Ответ:
+{"command":"delete_reminders","mode":"filter","status":"done"}
+
+Пользователь: "Удали все напоминания"
+Ответ:
+{"command":"delete_reminders","mode":"filter","confirm_delete_all":true}
 """.strip()
