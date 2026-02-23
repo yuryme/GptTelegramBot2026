@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +17,8 @@ class Settings(BaseSettings):
     telegram_bot_token: str = Field(default="test-token")
     telegram_webhook_secret: str = Field(default="dev-secret")
     telegram_webhook_path: str = Field(default="/webhook/telegram")
+    telegram_delivery_mode: Literal["webhook", "polling"] = Field(default="webhook")
+    telegram_polling_drop_pending_updates: bool = Field(default=True)
 
     database_url: str = Field(default="postgresql+psycopg://postgres:postgres@db:5432/reminder_bot")
     openai_api_key: str = Field(default="replace_me")

@@ -61,7 +61,8 @@ async def test_create_with_recurrence_rule() -> None:
             ],
         }
     )
-    created = await service.create_from_command(chat_id=123, command=cmd)
+    now = datetime(2026, 2, 22, 10, 15, tzinfo=timezone.utc)
+    created = await service.create_from_command(chat_id=123, command=cmd, now=now)
     assert len(created) == 1
     assert created[0].run_at == datetime(2026, 2, 23, 9, 0, tzinfo=timezone.utc)
     assert created[0].recurrence_rule == "FREQ=DAILY"

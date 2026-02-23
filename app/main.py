@@ -1,5 +1,7 @@
 import logging
+from asyncio import CancelledError, create_task
 from contextlib import asynccontextmanager
+from contextlib import suppress
 
 from fastapi import FastAPI
 from aiogram.utils.token import TokenValidationError
@@ -29,6 +31,7 @@ async def lifespan(app: FastAPI):
         logger.warning("Telegram bot token is invalid. Webhook processing is disabled.")
     app.state.bot = bot
     app.state.dispatcher = dispatcher
+    app.state.polling_task = None
     scheduler = AsyncIOScheduler(timezone="UTC")
     app.state.scheduler = scheduler
     if bot is not None:
@@ -49,10 +52,27 @@ async def lifespan(app: FastAPI):
         estimated_input_cost_per_1k=settings.openai_estimated_input_cost_per_1k,
         estimated_output_cost_per_1k=settings.openai_estimated_output_cost_per_1k,
     )
+    if bot is not None and dispatcher is not None and settings.telegram_delivery_mode == "polling":
+        await bot.delete_webhook(drop_pending_updates=settings.telegram_polling_drop_pending_updates)
+        app.state.polling_task = create_task(
+            dispatcher.start_polling(
+                bot,
+                allowed_updates=dispatcher.resolve_used_update_types(),
+            )
+        )
+        logger.info("Telegram runtime started in polling mode")
+    else:
+        logger.info("Telegram runtime started in webhook mode")
+
     logger.info("Application started")
     try:
         yield
     finally:
+        polling_task = getattr(app.state, "polling_task", None)
+        if polling_task is not None:
+            polling_task.cancel()
+            with suppress(CancelledError):
+                await polling_task
         scheduler = getattr(app.state, "scheduler", None)
         if scheduler is not None and scheduler.running:
             scheduler.shutdown(wait=False)

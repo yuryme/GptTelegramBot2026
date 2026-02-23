@@ -30,6 +30,12 @@ async def telegram_webhook(
     request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ) -> dict[str, bool]:
+    if settings.telegram_delivery_mode != "webhook":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Webhook endpoint is disabled in polling mode",
+        )
+
     if x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook secret")
 
