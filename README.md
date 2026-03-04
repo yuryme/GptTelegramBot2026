@@ -74,6 +74,19 @@ TELEGRAM_POLLING_DROP_PENDING_UPDATES=true
 curl http://localhost:8000/healthz
 ```
 
+## Рабочий процесс (локально -> сервер)
+
+1. Разработка и эксперименты выполняются локально.
+2. Локально проходят проверки (тесты/ручной smoke).
+3. Изменения фиксируются в Git (`commit`) и отправляются в GitHub (`push`).
+4. На сервер выкатывается ровно этот коммит.
+5. После деплоя выполняется smoke-проверка на сервере:
+   - `systemctl status telegram-reminder-bot`
+   - `journalctl -u telegram-reminder-bot -n 50 --no-pager`
+   - `curl http://127.0.0.1:8000/healthz`
+
+Важно: сервер не синхронизируется с GitHub автоматически, деплой выполняется отдельным шагом.
+
 ## Документация
 
 - План проекта: `PROJECT_PLAN.md`
