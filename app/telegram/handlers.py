@@ -1,7 +1,9 @@
-﻿from aiogram import F, Router
-from aiogram.types import Message
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+
+from aiogram import F, Router
+from aiogram.filters import CommandStart
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from app.core.settings import get_settings
 from app.db.session import SessionLocal
@@ -26,6 +28,20 @@ chat_rate_limiter = ChatRateLimiter(
 )
 display_tz = ZoneInfo(settings.app_timezone)
 
+BTN_SHOW_TODAY = "Показать напоминания на сегодня"
+BTN_SHOW_ALL = "Показать все напоминания"
+
+
+def _main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_SHOW_TODAY)],
+            [KeyboardButton(text=BTN_SHOW_ALL)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
 
 def _format_run_at(dt) -> str:
     return dt.astimezone(display_tz).strftime("%d.%m.%Y %H:%M")
@@ -40,17 +56,30 @@ def _format_status(status: str) -> str:
     return mapping.get(status, status)
 
 
+async def on_start_message(message: Message) -> None:
+    await message.answer(
+        "Выберите действие кнопкой ниже или отправьте запрос текстом.",
+        reply_markup=_main_keyboard(),
+    )
+
+
 @router.message(F.text)
 async def on_text_message(message: Message) -> None:
     if not message.text:
         await message.answer("Нужен текст запроса.")
         return
+
+    text = message.text.strip()
+    if text.startswith("/start"):
+        await on_start_message(message)
+        return
+
     if not chat_rate_limiter.allow(message.chat.id):
         await message.answer("Слишком много запросов. Подождите немного и попробуйте снова.")
         return
 
     try:
-        command = await llm_service.build_command(message.text)
+        command = await llm_service.build_command(text)
     except LLMBudgetExceededError:
         await message.answer("Лимит запросов к модели на текущий месяц исчерпан.")
         return
@@ -80,7 +109,7 @@ async def on_text_message(message: Message) -> None:
                 chat_id=message.chat.id,
                 action_type="create",
                 target_scope="multi" if len(created) > 1 else "single",
-                source_text=message.text,
+                source_text=text,
                 parsed_command=command.model_dump(mode="json"),
                 result_stats={"created": len(created), "matched": len(created), "changed": len(created)},
             )
@@ -101,7 +130,7 @@ async def on_text_message(message: Message) -> None:
                 chat_id=message.chat.id,
                 action_type="list",
                 target_scope="multi",
-                source_text=message.text,
+                source_text=text,
                 parsed_command=command.model_dump(mode="json"),
                 result_stats={"matched": len(items), "created": 0, "changed": 0},
             )
@@ -123,7 +152,7 @@ async def on_text_message(message: Message) -> None:
                 chat_id=message.chat.id,
                 action_type="delete",
                 target_scope="multi" if deleted.deleted_count > 1 else "single",
-                source_text=message.text,
+                source_text=text,
                 parsed_command=command.model_dump(mode="json"),
                 result_stats={"matched": len(deleted.items), "created": 0, "changed": deleted.deleted_count},
             )
@@ -139,5 +168,6 @@ async def on_text_message(message: Message) -> None:
 
 def create_router() -> Router:
     runtime_router = Router()
+    runtime_router.message.register(on_start_message, CommandStart())
     runtime_router.message.register(on_text_message, F.text)
     return runtime_router
