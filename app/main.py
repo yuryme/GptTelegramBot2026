@@ -1,5 +1,7 @@
 import logging
 from asyncio import CancelledError, create_task
+import asyncio
+import sys
 from contextlib import asynccontextmanager
 from contextlib import suppress
 
@@ -16,6 +18,9 @@ from app.services.webhook_dedup import WebhookDeduplicator
 from app.telegram.runtime import build_bot, build_dispatcher
 
 logger = logging.getLogger(__name__)
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 @asynccontextmanager

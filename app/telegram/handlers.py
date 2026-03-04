@@ -30,6 +30,12 @@ display_tz = ZoneInfo(settings.app_timezone)
 
 BTN_SHOW_TODAY = "Показать напоминания на сегодня"
 BTN_SHOW_ALL = "Показать все напоминания"
+BTN_SETTINGS = "Настройка"
+BTN_MODELS = "Модели"
+BTN_LIMITS = "Лимиты"
+BTN_BACK = "Назад"
+MAX_MODEL_BUTTONS = 12
+_chat_model_choices: dict[int, dict[str, str]] = {}
 
 
 def _main_keyboard() -> ReplyKeyboardMarkup:
@@ -37,7 +43,30 @@ def _main_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=BTN_SHOW_TODAY)],
             [KeyboardButton(text=BTN_SHOW_ALL)],
+            [KeyboardButton(text=BTN_SETTINGS)],
         ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
+def _settings_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_MODELS)],
+            [KeyboardButton(text=BTN_LIMITS)],
+            [KeyboardButton(text=BTN_BACK)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
+def _models_keyboard(models: list[str]) -> ReplyKeyboardMarkup:
+    keyboard = [[KeyboardButton(text=model)] for model in models[:MAX_MODEL_BUTTONS]]
+    keyboard.append([KeyboardButton(text=BTN_BACK)])
+    return ReplyKeyboardMarkup(
+        keyboard=keyboard,
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -72,6 +101,67 @@ async def on_text_message(message: Message) -> None:
     text = message.text.strip()
     if text.startswith("/start"):
         await on_start_message(message)
+        return
+    text_lc = text.lower()
+    if text == BTN_SETTINGS or text_lc.startswith("настрой"):
+        await message.answer("Раздел настроек:", reply_markup=_settings_keyboard())
+        return
+    if text == BTN_BACK or text_lc == "назад":
+        _chat_model_choices.pop(message.chat.id, None)
+        await message.answer("Главное меню:", reply_markup=_main_keyboard())
+        return
+    if text == BTN_MODELS or text_lc.startswith("модел"):
+        models = await llm_service.list_accessible_models()
+        _chat_model_choices[message.chat.id] = {model: model for model in models}
+        lines = ["Доступные модели для вашего ключа:"]
+        for model in models[:MAX_MODEL_BUTTONS]:
+            price = llm_service.get_model_price_per_1m(model)
+            if price is None:
+                lines.append(f"- {model}: цена за 1M токенов не указана")
+            else:
+                lines.append(f"- {model}: input ${price[0]:.2f}/1M, output ${price[1]:.2f}/1M")
+        lines.append(f"Текущая модель: {llm_service.active_model}")
+        await message.answer(
+            "\n".join(lines),
+            reply_markup=_models_keyboard(models),
+        )
+        return
+    if text == BTN_LIMITS or text_lc.startswith("лимит"):
+        account_snapshot = await llm_service.get_account_limit_snapshot()
+        if account_snapshot is not None:
+            await message.answer(
+                "\n".join(
+                    [
+                        f"Лимит API-аккаунта: ${account_snapshot['hard_limit_usd']:.2f}",
+                        f"Потрачено в этом месяце: ${account_snapshot['spent_usd']:.2f}",
+                        f"Остаток лимита: ${account_snapshot['remaining_usd']:.2f}",
+                        "",
+                        f"Локальный лимит бота: ${settings.openai_monthly_budget_usd:.2f}",
+                    ]
+                ),
+                reply_markup=_settings_keyboard(),
+            )
+            return
+        await message.answer(
+            "\n".join(
+                [
+                    f"Месячный лимит: ${settings.openai_monthly_budget_usd}",
+                    f"Оценка входа за 1K токенов: ${settings.openai_estimated_input_cost_per_1k}",
+                    f"Оценка выхода за 1K токенов: ${settings.openai_estimated_output_cost_per_1k}",
+                    "API-лимит аккаунта недоступен для текущего ключа.",
+                ]
+            ),
+            reply_markup=_settings_keyboard(),
+        )
+        return
+    model_choices = _chat_model_choices.get(message.chat.id, {})
+    if text in model_choices:
+        selected = model_choices[text]
+        llm_service.set_active_model(selected)
+        await message.answer(
+            f"Активная модель изменена: {selected}",
+            reply_markup=_settings_keyboard(),
+        )
         return
 
     if not chat_rate_limiter.allow(message.chat.id):
