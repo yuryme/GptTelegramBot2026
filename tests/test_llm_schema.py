@@ -3,7 +3,7 @@
 import pytest
 
 from app.schemas.commands import DayReference, ReminderInput, resolve_default_run_at
-from app.services.llm_service import LLMCommandValidationError, parse_assistant_command
+from app.services.llm_service import LLMCommandValidationError, LLMService, parse_assistant_command
 
 
 def test_parse_valid_create_command() -> None:
@@ -91,3 +91,38 @@ def test_weekday_string_and_time_field_are_supported() -> None:
     now = datetime(2026, 2, 22, 11, 0, tzinfo=timezone.utc)  # Sunday
     resolved = resolve_default_run_at(reminder, now)
     assert resolved == datetime(2026, 2, 25, 10, 30, tzinfo=timezone.utc)
+
+
+def test_day_reference_overrides_stale_run_at_date_for_voice_like_input() -> None:
+    now = datetime(2026, 3, 5, 11, 58, tzinfo=timezone.utc)
+    reminder = ReminderInput(
+        text="я молодец",
+        day_reference=DayReference.today,
+        run_at=datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc),
+        explicit_time_provided=True,
+    )
+    resolved = resolve_default_run_at(reminder, now)
+    assert resolved == datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
+
+
+def test_repair_create_command_dates_infers_today_from_text() -> None:
+    payload = {
+        "command": "create_reminders",
+        "reminders": [
+            {
+                "text": "я молодец",
+                "run_at": "2024-06-05T12:15:00+03:00",
+                "explicit_time_provided": True,
+            }
+        ],
+    }
+    command = parse_assistant_command(payload)
+    service = LLMService()
+    fixed = service._repair_create_command_dates(
+        command=command,
+        user_text="Сегодня в 12:15 напомни, что я молодец.",
+    )
+    reminder = fixed.reminders[0]
+    assert reminder.day_reference == DayReference.today
+    assert reminder.time_value == "12:15"
+    assert reminder.run_at is None

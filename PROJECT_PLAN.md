@@ -94,6 +94,7 @@
 - [x] Убрать дополнительные LLM-round-trip для `list_reminders` (refine/normalize) и оставить fast-path для снижения задержки.
 - [x] Добавить поддержку голосовых сообщений Telegram (`voice`/`audio`) с распознаванием речи через OpenAI STT.
 - [x] Добавить конфигурацию модели STT в настройки (`OPENAI_TRANSCRIPTION_MODEL`).
+- [x] Исправить ошибку неверной даты в voice-сценариях: нормализовать `run_at` через day-reference (`today/tomorrow/day_after_tomorrow`) и время.
 
 ## Этап 8. Локальное интеграционное тестирование перед VPS
 

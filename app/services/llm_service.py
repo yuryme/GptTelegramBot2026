@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from app.core.settings import get_settings
 from app.llm.prompts import SYSTEM_PROMPT_RU
-from app.schemas.commands import AssistantCommand, CommandName, assistant_command_adapter
+from app.schemas.commands import AssistantCommand, CommandName, DayReference, assistant_command_adapter
 from app.services.cost_control import MonthlyCostGuard
 from app.services.guardrails import LLMCircuitBreaker
 
@@ -191,10 +191,53 @@ class LLMService:
                 raise
             command = recovered
 
+        command = self._repair_create_command_dates(command=command, user_text=user_text)
+
         # Fast path: skip extra refinement/normalization LLM round-trips.
         # This keeps latency predictable by relying on the primary parsed command.
 
         return command
+
+    def _repair_create_command_dates(self, *, command: AssistantCommand, user_text: str) -> AssistantCommand:
+        if command.command != CommandName.create:
+            return command
+
+        text = user_text.lower()
+        inferred_day_ref: DayReference | None = None
+        if "послезавтра" in text:
+            inferred_day_ref = DayReference.day_after_tomorrow
+        elif "завтра" in text:
+            inferred_day_ref = DayReference.tomorrow
+        elif "сегодня" in text:
+            inferred_day_ref = DayReference.today
+
+        if inferred_day_ref is None:
+            return command
+
+        changed = False
+        fixed_reminders = []
+        for item in command.reminders:
+            if item.day_reference is not None or item.run_at is None:
+                fixed_reminders.append(item)
+                continue
+
+            run_at_value = item.run_at
+            hhmm = run_at_value.strftime("%H:%M")
+            fixed = item.model_copy(
+                update={
+                    "run_at": None,
+                    "day_reference": inferred_day_ref,
+                    "time_value": hhmm,
+                    "explicit_time_provided": True,
+                }
+            )
+            fixed_reminders.append(fixed)
+            changed = True
+
+        if not changed:
+            return command
+
+        return command.model_copy(update={"reminders": fixed_reminders})
 
     async def _request_primary_command(self, *, user_text: str, now: datetime) -> str:
         settings = get_settings()

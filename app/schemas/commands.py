@@ -140,37 +140,49 @@ def next_weekday(base_dt: datetime, weekday: int) -> datetime:
 
 
 def resolve_default_run_at(reminder: ReminderInput, now: datetime) -> datetime:
+    if reminder.day_reference is not None:
+        # Prefer semantic day reference over model-suggested absolute date.
+        # This protects commands like "today at 12:00" when LLM returns a stale run_at date.
+        if reminder.day_reference == DayReference.today:
+            if reminder.explicit_time_provided:
+                time_from_text = _parse_time_text(reminder.time_value or "")
+                if time_from_text is None and reminder.run_at is not None:
+                    run_at_local = reminder.run_at.astimezone(now.tzinfo or timezone.utc)
+                    time_from_text = run_at_local.timetz().replace(tzinfo=None)
+                if time_from_text is not None:
+                    return datetime.combine(now.date(), time_from_text, tzinfo=now.tzinfo or timezone.utc)
+            rounded = now.replace(minute=0, second=0, microsecond=0)
+            if now > rounded:
+                rounded += timedelta(hours=1)
+            return rounded
+
+        if reminder.day_reference == DayReference.tomorrow:
+            day_date = (now + timedelta(days=1)).date()
+        elif reminder.day_reference == DayReference.day_after_tomorrow:
+            day_date = (now + timedelta(days=2)).date()
+        elif reminder.day_reference == DayReference.weekday:
+            day_date = next_weekday(now, reminder.weekday or 0).date()
+        elif reminder.day_reference == DayReference.specific_date:
+            day_date = reminder.date_value or now.date()
+            if day_date <= now.date():
+                raise ValueError("specific_date must be in the future when time is omitted")
+        else:
+            raise ValueError("Unsupported day_reference")
+
+        default_time = time(hour=8, minute=0)
+        if reminder.explicit_time_provided:
+            parsed = _parse_time_text(reminder.time_value or "")
+            if parsed is None and reminder.run_at is not None:
+                run_at_local = reminder.run_at.astimezone(now.tzinfo or timezone.utc)
+                parsed = run_at_local.timetz().replace(tzinfo=None)
+            if parsed is not None:
+                default_time = parsed
+        return datetime.combine(day_date, default_time, tzinfo=now.tzinfo or timezone.utc)
+
     if reminder.run_at is not None:
         return reminder.run_at if reminder.run_at.tzinfo else reminder.run_at.replace(tzinfo=timezone.utc)
 
-    if reminder.day_reference is None:
-        raise ValueError("day_reference must be provided when run_at is missing")
-
-    if reminder.day_reference == DayReference.today:
-        rounded = now.replace(minute=0, second=0, microsecond=0)
-        if now > rounded:
-            rounded += timedelta(hours=1)
-        return rounded
-
-    if reminder.day_reference == DayReference.tomorrow:
-        day_date = (now + timedelta(days=1)).date()
-    elif reminder.day_reference == DayReference.day_after_tomorrow:
-        day_date = (now + timedelta(days=2)).date()
-    elif reminder.day_reference == DayReference.weekday:
-        day_date = next_weekday(now, reminder.weekday or 0).date()
-    elif reminder.day_reference == DayReference.specific_date:
-        day_date = reminder.date_value or now.date()
-        if day_date <= now.date():
-            raise ValueError("specific_date must be in the future when time is omitted")
-    else:
-        raise ValueError("Unsupported day_reference")
-
-    default_time = time(hour=8, minute=0)
-    if reminder.explicit_time_provided and reminder.time_value:
-        parsed = _parse_time_text(reminder.time_value)
-        if parsed is not None:
-            default_time = parsed
-    return datetime.combine(day_date, default_time, tzinfo=now.tzinfo or timezone.utc)
+    raise ValueError("Either run_at or day_reference must be provided")
 
 
 def _parse_time_text(value: str) -> time | None:
