@@ -33,7 +33,7 @@ function Stop-Bot {
 switch ($Action) {
     "start" {
         Stop-Bot
-        $proc = Start-Process -FilePath "py" -ArgumentList "-m uvicorn --app-dir . app.main:app --host 0.0.0.0 --port 18010" -WorkingDirectory $Root -RedirectStandardOutput $LogFile -RedirectStandardError $ErrFile -PassThru
+        $proc = Start-Process -FilePath "py" -ArgumentList "scripts/local_run.py" -WorkingDirectory $Root -RedirectStandardOutput $LogFile -RedirectStandardError $ErrFile -PassThru
         $proc.Id | Set-Content $PidFile -Encoding ascii
         Write-Output "started pid=$($proc.Id)"
     }
@@ -43,7 +43,7 @@ switch ($Action) {
     }
     "restart" {
         Stop-Bot
-        $proc = Start-Process -FilePath "py" -ArgumentList "-m uvicorn --app-dir . app.main:app --host 0.0.0.0 --port 18010" -WorkingDirectory $Root -RedirectStandardOutput $LogFile -RedirectStandardError $ErrFile -PassThru
+        $proc = Start-Process -FilePath "py" -ArgumentList "scripts/local_run.py" -WorkingDirectory $Root -RedirectStandardOutput $LogFile -RedirectStandardError $ErrFile -PassThru
         $proc.Id | Set-Content $PidFile -Encoding ascii
         Write-Output "restarted pid=$($proc.Id)"
     }

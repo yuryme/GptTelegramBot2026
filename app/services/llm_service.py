@@ -191,18 +191,8 @@ class LLMService:
                 raise
             command = recovered
 
-        if self._should_refine_list_command(command):
-            refined = await self._refine_list_command_with_llm(user_text=user_text, command=command, now=now)
-            if refined is not None:
-                command = refined
-        if command.command == CommandName.list_items and command.search_text:
-            normalized_search = await self._normalize_search_text_with_llm(
-                user_text=user_text,
-                current_search_text=command.search_text,
-                now=now,
-            )
-            if normalized_search:
-                command = command.model_copy(update={"search_text": normalized_search})
+        # Fast path: skip extra refinement/normalization LLM round-trips.
+        # This keeps latency predictable by relying on the primary parsed command.
 
         return command
 
@@ -256,12 +246,40 @@ class LLMService:
         logger.info("LLM raw output: %s", raw_output)
         return raw_output
 
-    def _should_refine_list_command(self, command: AssistantCommand) -> bool:
+    def _should_refine_list_command(self, *, command: AssistantCommand, user_text: str) -> bool:
         if command.command != CommandName.list_items:
             return False
         if command.mode != "all":
             return False
-        return command.search_text is None and command.from_dt is None and command.to_dt is None and command.status is None
+        if not (
+            command.search_text is None
+            and command.from_dt is None
+            and command.to_dt is None
+            and command.status is None
+        ):
+            return False
+
+        # Avoid extra LLM round-trip for simple "show all" requests.
+        text = user_text.lower()
+        refine_hints = (
+            "сегодня",
+            "завтра",
+            "послезавтра",
+            "вчера",
+            "на неделе",
+            "на этой неделе",
+            "в этом месяце",
+            "между",
+            "с ",
+            "по ",
+            "до ",
+            "после ",
+            "диапазон",
+            "содерж",
+            "найди",
+            "поиск",
+        )
+        return any(hint in text for hint in refine_hints)
 
     async def _refine_list_command_with_llm(
         self,
@@ -429,6 +447,28 @@ def _normalize_llm_json_text(text: str) -> str:
 
 def _normalize_legacy_command_payload(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(payload)
+    if normalized.get("command") == "create_reminders":
+        reminders = normalized.get("reminders")
+        if isinstance(reminders, list):
+            fixed: list[dict[str, Any]] = []
+            for item in reminders:
+                if not isinstance(item, dict):
+                    fixed.append(item)
+                    continue
+                current = dict(item)
+                run_at_value = current.get("run_at")
+                day_ref = current.get("day_reference")
+                if (
+                    isinstance(run_at_value, str)
+                    and day_ref is not None
+                    and re.fullmatch(r"\d{1,2}[:\-]\d{2}", run_at_value.strip())
+                ):
+                    current["time"] = run_at_value.strip()
+                    current["explicit_time_provided"] = True
+                    current.pop("run_at", None)
+                fixed.append(current)
+            normalized["reminders"] = fixed
+
     if normalized.get("command") == "delete_reminders":
         if "status" not in normalized and "filter_status" in normalized:
             normalized["status"] = normalized.get("filter_status")

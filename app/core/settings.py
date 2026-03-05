@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     database_url: str = Field(default="postgresql+psycopg://postgres:postgres@db:5432/reminder_bot")
     openai_api_key: str = Field(default="replace_me")
     openai_model: str = Field(default="gpt-4.1-mini")
+    openai_transcription_model: str = Field(default="gpt-4o-mini-transcribe")
     openai_monthly_budget_usd: float = Field(default=10.0)
     openai_estimated_input_cost_per_1k: float = Field(default=0.0003)
     openai_estimated_output_cost_per_1k: float = Field(default=0.0012)
