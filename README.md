@@ -104,3 +104,5 @@ curl http://localhost:8000/healthz
 - Локальный чек-лист: `docs/LOCAL_TESTING.md`
 - VPS-деплой: `deploy/DEPLOY_VPS.md`
 - Управление сервисом с Windows: `scripts/bot_service.bat`
+
+- Совместимость schema-first для create_reminders: при day_reference=specific_date принимаются оба ключа даты (date_value и legacy specific_date) с нормализацией во внутренний date_value.
