@@ -381,6 +381,12 @@ def _normalize_legacy_command_payload(payload: dict[str, Any]) -> dict[str, Any]
                     current["time"] = run_at_value.strip()
                     current["explicit_time_provided"] = True
                     current.pop("run_at", None)
+
+                if isinstance(day_ref, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", day_ref.strip()):
+                    current["day_reference"] = "specific_date"
+                    if "date_value" not in current and "specific_date" not in current:
+                        current["date_value"] = day_ref.strip()
+
                 fixed.append(current)
             normalized["reminders"] = fixed
 

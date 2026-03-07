@@ -182,7 +182,3 @@
 - [x] После одобрения пользователя обязательно обновляются `README.md` и `PROJECT_PLAN.md`, затем выполняются `git commit` и `git push`.
 - [x] Любые изменения логики проекта сначала согласовываются с пользователем, затем выполняются в коде.
 - [x] Стандарт релиза: разработка локально -> проверка -> commit/push -> деплой на сервер из этого же коммита -> серверный smoke-check.
-
-- [x] Hotfix совместимости: для create_reminders при day_reference=specific_date поддержан legacy-ключ specific_date как alias к date_value.
-
-- [x] Hotfix voice-stability: stale-year `specific_date` with explicit time is normalized to nearest future year; voice flow now returns user-facing error instead of silent failure.

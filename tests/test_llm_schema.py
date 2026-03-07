@@ -1,4 +1,4 @@
-﻿from datetime import date, datetime, timezone
+﻿from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -158,3 +158,31 @@ def test_specific_date_with_explicit_time_rolls_stale_year_forward() -> None:
     )
     resolved = resolve_default_run_at(reminder, now)
     assert resolved == datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc)
+
+
+def test_day_reference_iso_date_string_is_normalized_to_specific_date() -> None:
+    payload = {
+        "command": "create_reminders",
+        "reminders": [
+            {
+                "text": "?????????? ?????? ? ???? ????????",
+                "day_reference": "2026-03-11",
+                "explicit_time_provided": False,
+            }
+        ],
+    }
+    command = parse_assistant_command(payload)
+    reminder = command.reminders[0]
+    assert reminder.day_reference == DayReference.specific_date
+    assert reminder.date_value == date(2026, 3, 11)
+
+
+def test_naive_run_at_is_treated_as_local_time() -> None:
+    now = datetime(2026, 3, 7, 19, 50, tzinfo=timezone(timedelta(hours=3)))
+    reminder = ReminderInput(
+        text="test",
+        run_at=datetime(2026, 3, 11, 10, 0),
+        explicit_time_provided=True,
+    )
+    resolved = resolve_default_run_at(reminder, now)
+    assert resolved == datetime(2026, 3, 11, 10, 0, tzinfo=timezone(timedelta(hours=3)))

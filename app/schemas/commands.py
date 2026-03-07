@@ -194,7 +194,7 @@ def resolve_default_run_at(reminder: ReminderInput, now: datetime) -> datetime:
         return datetime.combine(day_date, default_time, tzinfo=now.tzinfo or timezone.utc)
 
     if reminder.run_at is not None:
-        return reminder.run_at if reminder.run_at.tzinfo else reminder.run_at.replace(tzinfo=timezone.utc)
+        return reminder.run_at if reminder.run_at.tzinfo else reminder.run_at.replace(tzinfo=now.tzinfo or timezone.utc)
 
     raise ValueError("Either run_at or day_reference must be provided")
 
