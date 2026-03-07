@@ -165,7 +165,21 @@ def resolve_default_run_at(reminder: ReminderInput, now: datetime) -> datetime:
         elif reminder.day_reference == DayReference.specific_date:
             day_date = reminder.date_value or now.date()
             if day_date <= now.date():
-                raise ValueError("specific_date must be in the future when time is omitted")
+                if reminder.explicit_time_provided:
+                    # LLM can return stale year for explicit dates from voice/text.
+                    # Preserve month/day and shift to the nearest future year.
+                    try:
+                        candidate = day_date.replace(year=now.year)
+                    except ValueError:
+                        candidate = day_date
+                    if candidate <= now.date():
+                        try:
+                            candidate = candidate.replace(year=now.year + 1)
+                        except ValueError:
+                            pass
+                    day_date = candidate
+                else:
+                    raise ValueError("specific_date must be in the future when time is omitted")
         else:
             raise ValueError("Unsupported day_reference")
 

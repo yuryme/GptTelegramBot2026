@@ -145,3 +145,16 @@ def test_specific_date_legacy_field_is_accepted() -> None:
     assert reminder.day_reference == DayReference.specific_date
     assert reminder.date_value == date(2026, 3, 10)
     assert reminder.time_value == "10:00"
+
+
+def test_specific_date_with_explicit_time_rolls_stale_year_forward() -> None:
+    now = datetime(2026, 3, 7, 19, 30, tzinfo=timezone.utc)
+    reminder = ReminderInput(
+        text="test",
+        day_reference=DayReference.specific_date,
+        date_value=date(2024, 3, 10),
+        explicit_time_provided=True,
+        time="10:00",
+    )
+    resolved = resolve_default_run_at(reminder, now)
+    assert resolved == datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc)

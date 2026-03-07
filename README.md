@@ -106,3 +106,5 @@ curl http://localhost:8000/healthz
 - Управление сервисом с Windows: `scripts/bot_service.bat`
 
 - Совместимость schema-first для create_reminders: при day_reference=specific_date принимаются оба ключа даты (date_value и legacy specific_date) с нормализацией во внутренний date_value.
+
+- Hotfix voice/create: when LLM returns stale year in `specific_date` with explicit time, date is shifted to nearest future year; bot no longer fails silently.

@@ -325,7 +325,11 @@ async def on_voice_message(message: Message) -> None:
         service = ReminderService(ReminderRepository(session))
 
         if command.command == CommandName.create:
-            created = await service.create_from_command(chat_id=message.chat.id, command=command)
+            try:
+                created = await service.create_from_command(chat_id=message.chat.id, command=command)
+            except Exception:
+                await message.answer("Request processing error. Please try again.")
+                return
             if not created:
                 await message.answer("Напоминания не созданы.")
                 return
