@@ -4,7 +4,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter, model_validator
+from pydantic import AliasChoices, BaseModel, Field, TypeAdapter, model_validator
 
 
 class CommandName(str, Enum):
@@ -28,7 +28,7 @@ class ReminderInput(BaseModel):
     day_reference: DayReference | None = None
     weekday: int | None = Field(default=None, ge=0, le=6)
     time_value: str | None = Field(default=None, validation_alias="time")
-    date_value: date | None = None
+    date_value: date | None = Field(default=None, validation_alias=AliasChoices("date_value", "specific_date"))
     explicit_time_provided: bool = False
 
     @model_validator(mode="after")

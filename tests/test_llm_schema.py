@@ -126,3 +126,22 @@ def test_repair_create_command_dates_infers_today_from_text() -> None:
     assert reminder.day_reference == DayReference.today
     assert reminder.time_value == "12:15"
     assert reminder.run_at is None
+
+def test_specific_date_legacy_field_is_accepted() -> None:
+    payload = {
+        "command": "create_reminders",
+        "reminders": [
+            {
+                "text": "поздравить детей со свадьбой",
+                "day_reference": "specific_date",
+                "specific_date": "2026-03-10",
+                "time": "10:00",
+                "explicit_time_provided": True,
+            }
+        ],
+    }
+    command = parse_assistant_command(payload)
+    reminder = command.reminders[0]
+    assert reminder.day_reference == DayReference.specific_date
+    assert reminder.date_value == date(2026, 3, 10)
+    assert reminder.time_value == "10:00"
