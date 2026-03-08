@@ -1,4 +1,5 @@
 import io
+import logging
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -25,6 +26,7 @@ router = Router()
 llm_service = LLMService()
 speech_service = SpeechToTextService()
 settings = get_settings()
+logger = logging.getLogger(__name__)
 chat_rate_limiter = ChatRateLimiter(
     max_requests=settings.chat_rate_limit_requests,
     window_seconds=settings.chat_rate_limit_window_seconds,
@@ -95,6 +97,110 @@ async def on_start_message(message: Message) -> None:
     )
 
 
+async def _handle_business_text(
+    *,
+    message: Message,
+    text: str,
+    source_text: str,
+) -> None:
+    if not chat_rate_limiter.allow(message.chat.id):
+        await message.answer("Слишком много запросов. Подождите немного и попробуйте снова.")
+        return
+
+    try:
+        command = await llm_service.build_command(text)
+    except LLMBudgetExceededError:
+        await message.answer("Лимит запросов к модели на текущий месяц исчерпан.")
+        return
+    except LLMRateLimitError:
+        await message.answer("Сервис модели временно недоступен: превышен лимит/квота OpenAI. Попробуйте позже.")
+        return
+    except LLMCircuitOpenError:
+        await message.answer("Сервис модели временно перегружен. Попробуйте через минуту.")
+        return
+    except LLMCommandValidationError:
+        await message.answer("Не удалось понять команду. Уточните текст запроса.")
+        return
+    except Exception:
+        logger.exception("Ошибка вызова LLM")
+        await message.answer("Ошибка обработки запроса. Попробуйте еще раз.")
+        return
+
+    try:
+        async with SessionLocal() as session:
+            service = ReminderService(ReminderRepository(session))
+
+            if command.command == CommandName.create:
+                created = await service.create_from_command(chat_id=message.chat.id, command=command)
+                if not created:
+                    await message.answer("Напоминания не созданы.")
+                    return
+                await service._repository.log_action(
+                    action_id=str(uuid4()),
+                    chat_id=message.chat.id,
+                    action_type="create",
+                    target_scope="multi" if len(created) > 1 else "single",
+                    source_text=source_text,
+                    parsed_command=command.model_dump(mode="json"),
+                    result_stats={"created": len(created), "matched": len(created), "changed": len(created)},
+                )
+                lines = ["Созданные напоминания:"]
+                for idx, item in enumerate(created, start=1):
+                    lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")
+                    lines.append(f"   {item.text}")
+                await message.answer("\n".join(lines))
+                return
+
+            if command.command == CommandName.list_items:
+                items = await service.list_from_command(chat_id=message.chat.id, command=command)
+                if not items:
+                    await message.answer("Напоминания не найдены.")
+                    return
+                await service._repository.log_action(
+                    action_id=str(uuid4()),
+                    chat_id=message.chat.id,
+                    action_type="list",
+                    target_scope="multi",
+                    source_text=source_text,
+                    parsed_command=command.model_dump(mode="json"),
+                    result_stats={"matched": len(items), "created": 0, "changed": 0},
+                )
+                lines = ["Найденные напоминания:"]
+                for idx, item in enumerate(items, start=1):
+                    rec = f", повтор: {item.recurrence_rule}" if item.recurrence_rule else ""
+                    lines.append(f"{idx}. #{item.id} [{_format_status(item.status)}] | {_format_run_at(item.run_at)}{rec}")
+                    lines.append(f"   {item.text}")
+                await message.answer("\n".join(lines))
+                return
+
+            if command.command == CommandName.delete:
+                deleted = await service.delete_from_command(chat_id=message.chat.id, command=command)
+                if deleted.deleted_count == 0:
+                    await message.answer("Подходящие напоминания не найдены, ничего не удалено.")
+                    return
+                await service._repository.log_action(
+                    action_id=str(uuid4()),
+                    chat_id=message.chat.id,
+                    action_type="delete",
+                    target_scope="multi" if deleted.deleted_count > 1 else "single",
+                    source_text=source_text,
+                    parsed_command=command.model_dump(mode="json"),
+                    result_stats={"matched": len(deleted.items), "created": 0, "changed": deleted.deleted_count},
+                )
+                lines = [f"Удалено напоминаний: {deleted.deleted_count}"]
+                for idx, item in enumerate(deleted.items, start=1):
+                    lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")
+                    lines.append(f"   {item.text}")
+                await message.answer("\n".join(lines))
+                return
+    except Exception:
+        logger.exception("Ошибка бизнес-обработки команды")
+        await message.answer("Ошибка обработки запроса. Попробуйте еще раз.")
+        return
+
+    await message.answer("На текущем этапе эта команда еще не поддерживается.")
+
+
 @router.message(F.text)
 async def on_text_message(message: Message) -> None:
     if not message.text:
@@ -105,6 +211,7 @@ async def on_text_message(message: Message) -> None:
     if text.startswith("/start"):
         await on_start_message(message)
         return
+
     text_lc = text.lower()
     if text == BTN_SETTINGS or text_lc.startswith("настрой"):
         await message.answer("Раздел настроек:", reply_markup=_settings_keyboard())
@@ -157,6 +264,7 @@ async def on_text_message(message: Message) -> None:
             reply_markup=_settings_keyboard(),
         )
         return
+
     model_choices = _chat_model_choices.get(message.chat.id, {})
     if text in model_choices:
         selected = model_choices[text]
@@ -167,103 +275,10 @@ async def on_text_message(message: Message) -> None:
         )
         return
 
-    if not chat_rate_limiter.allow(message.chat.id):
-        await message.answer("Слишком много запросов. Подождите немного и попробуйте снова.")
-        return
-
-    try:
-        command = await llm_service.build_command(text)
-    except LLMBudgetExceededError:
-        await message.answer("Лимит запросов к модели на текущий месяц исчерпан.")
-        return
-    except LLMRateLimitError:
-        await message.answer("Сервис модели временно недоступен: превышен лимит/квота OpenAI. Попробуйте позже.")
-        return
-    except LLMCircuitOpenError:
-        await message.answer("Сервис модели временно перегружен. Попробуйте через минуту.")
-        return
-    except LLMCommandValidationError:
-        await message.answer("Не удалось понять команду. Уточните текст запроса.")
-        return
-    except Exception:
-        await message.answer("Ошибка обработки запроса. Попробуйте еще раз.")
-        return
-
-    async with SessionLocal() as session:
-        service = ReminderService(ReminderRepository(session))
-
-        if command.command == CommandName.create:
-            created = await service.create_from_command(chat_id=message.chat.id, command=command)
-            if not created:
-                await message.answer("Напоминания не созданы.")
-                return
-            await service._repository.log_action(
-                action_id=str(uuid4()),
-                chat_id=message.chat.id,
-                action_type="create",
-                target_scope="multi" if len(created) > 1 else "single",
-                source_text=text,
-                parsed_command=command.model_dump(mode="json"),
-                result_stats={"created": len(created), "matched": len(created), "changed": len(created)},
-            )
-            lines = ["Созданные напоминания:"]
-            for idx, item in enumerate(created, start=1):
-                lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")
-                lines.append(f"   {item.text}")
-            await message.answer("\n".join(lines))
-            return
-
-        if command.command == CommandName.list_items:
-            items = await service.list_from_command(chat_id=message.chat.id, command=command)
-            if not items:
-                await message.answer("Напоминания не найдены.")
-                return
-            await service._repository.log_action(
-                action_id=str(uuid4()),
-                chat_id=message.chat.id,
-                action_type="list",
-                target_scope="multi",
-                source_text=text,
-                parsed_command=command.model_dump(mode="json"),
-                result_stats={"matched": len(items), "created": 0, "changed": 0},
-            )
-            lines = ["Найденные напоминания:"]
-            for idx, item in enumerate(items, start=1):
-                rec = f", повтор: {item.recurrence_rule}" if item.recurrence_rule else ""
-                lines.append(f"{idx}. #{item.id} [{_format_status(item.status)}] | {_format_run_at(item.run_at)}{rec}")
-                lines.append(f"   {item.text}")
-            await message.answer("\n".join(lines))
-            return
-
-        if command.command == CommandName.delete:
-            deleted = await service.delete_from_command(chat_id=message.chat.id, command=command)
-            if deleted.deleted_count == 0:
-                await message.answer("Подходящие напоминания не найдены, ничего не удалено.")
-                return
-            await service._repository.log_action(
-                action_id=str(uuid4()),
-                chat_id=message.chat.id,
-                action_type="delete",
-                target_scope="multi" if deleted.deleted_count > 1 else "single",
-                source_text=text,
-                parsed_command=command.model_dump(mode="json"),
-                result_stats={"matched": len(deleted.items), "created": 0, "changed": deleted.deleted_count},
-            )
-            lines = [f"Удалено напоминаний: {deleted.deleted_count}"]
-            for idx, item in enumerate(deleted.items, start=1):
-                lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")
-                lines.append(f"   {item.text}")
-            await message.answer("\n".join(lines))
-            return
-
-    await message.answer("На текущем этапе эта команда еще не поддерживается.")
+    await _handle_business_text(message=message, text=text, source_text=text)
 
 
 async def on_voice_message(message: Message) -> None:
-    if not chat_rate_limiter.allow(message.chat.id):
-        await message.answer("Слишком много запросов. Подождите немного и попробуйте снова.")
-        return
-
     media = message.voice or message.audio
     if media is None:
         await message.answer("Не удалось прочитать голосовое сообщение.")
@@ -292,6 +307,7 @@ async def on_voice_message(message: Message) -> None:
             filename=filename,
         )
     except Exception:
+        logger.exception("Ошибка при обработке голосового сообщения")
         await message.answer("Ошибка при обработке голосового сообщения.")
         return
 
@@ -300,99 +316,7 @@ async def on_voice_message(message: Message) -> None:
         return
 
     await message.answer(f"Распознано: {transcript}")
-
-    text = transcript
-    try:
-        command = await llm_service.build_command(text)
-    except LLMBudgetExceededError:
-        await message.answer("Лимит запросов к модели на текущий месяц исчерпан.")
-        return
-    except LLMRateLimitError:
-        await message.answer("Сервис модели временно недоступен: превышен лимит/квота OpenAI. Попробуйте позже.")
-        return
-    except LLMCircuitOpenError:
-        await message.answer("Сервис модели временно перегружен. Попробуйте через минуту.")
-        return
-    except LLMCommandValidationError:
-        await message.answer("Не удалось понять команду. Уточните текст запроса.")
-        return
-    except Exception:
-        await message.answer("Ошибка обработки запроса. Попробуйте еще раз.")
-        return
-
-    source_text = f"[voice] {text}"
-    async with SessionLocal() as session:
-        service = ReminderService(ReminderRepository(session))
-
-        if command.command == CommandName.create:
-            try:
-                created = await service.create_from_command(chat_id=message.chat.id, command=command)
-            except Exception:
-                await message.answer("Request processing error. Please try again.")
-                return
-            if not created:
-                await message.answer("Напоминания не созданы.")
-                return
-            await service._repository.log_action(
-                action_id=str(uuid4()),
-                chat_id=message.chat.id,
-                action_type="create",
-                target_scope="multi" if len(created) > 1 else "single",
-                source_text=source_text,
-                parsed_command=command.model_dump(mode="json"),
-                result_stats={"created": len(created), "matched": len(created), "changed": len(created)},
-            )
-            lines = ["Созданные напоминания:"]
-            for idx, item in enumerate(created, start=1):
-                lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")
-                lines.append(f"   {item.text}")
-            await message.answer("\n".join(lines))
-            return
-
-        if command.command == CommandName.list_items:
-            items = await service.list_from_command(chat_id=message.chat.id, command=command)
-            if not items:
-                await message.answer("Напоминания не найдены.")
-                return
-            await service._repository.log_action(
-                action_id=str(uuid4()),
-                chat_id=message.chat.id,
-                action_type="list",
-                target_scope="multi",
-                source_text=source_text,
-                parsed_command=command.model_dump(mode="json"),
-                result_stats={"matched": len(items), "created": 0, "changed": 0},
-            )
-            lines = ["Найденные напоминания:"]
-            for idx, item in enumerate(items, start=1):
-                rec = f", повтор: {item.recurrence_rule}" if item.recurrence_rule else ""
-                lines.append(f"{idx}. #{item.id} [{_format_status(item.status)}] | {_format_run_at(item.run_at)}{rec}")
-                lines.append(f"   {item.text}")
-            await message.answer("\n".join(lines))
-            return
-
-        if command.command == CommandName.delete:
-            deleted = await service.delete_from_command(chat_id=message.chat.id, command=command)
-            if deleted.deleted_count == 0:
-                await message.answer("Подходящие напоминания не найдены, ничего не удалено.")
-                return
-            await service._repository.log_action(
-                action_id=str(uuid4()),
-                chat_id=message.chat.id,
-                action_type="delete",
-                target_scope="multi" if deleted.deleted_count > 1 else "single",
-                source_text=source_text,
-                parsed_command=command.model_dump(mode="json"),
-                result_stats={"matched": len(deleted.items), "created": 0, "changed": deleted.deleted_count},
-            )
-            lines = [f"Удалено напоминаний: {deleted.deleted_count}"]
-            for idx, item in enumerate(deleted.items, start=1):
-                lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")
-                lines.append(f"   {item.text}")
-            await message.answer("\n".join(lines))
-            return
-
-    await message.answer("На текущем этапе эта команда еще не поддерживается.")
+    await _handle_business_text(message=message, text=transcript, source_text=f"[voice] {transcript}")
 
 
 def create_router() -> Router:

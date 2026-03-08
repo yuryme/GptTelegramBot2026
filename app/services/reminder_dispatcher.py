@@ -1,15 +1,22 @@
 ﻿from __future__ import annotations
 
 import logging
-from calendar import monthrange
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from aiogram import Bot
 
-from app.core.internal_reminders import unwrap_internal_text
+from app.core.internal_reminders import (
+    build_pre_reminder_text,
+    is_internal_pre_reminder,
+    should_create_pre_reminder,
+    unwrap_internal_text,
+)
+from app.core.settings import get_settings
 from app.db.session import SessionLocal
 from app.repositories.reminder_repository import ReminderRepository
+from app.services.recurrence import compute_next_run_at
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
@@ -21,73 +28,14 @@ class DueReminderRepository(Protocol):
 
     async def reschedule(self, reminder_id: int, next_run_at: datetime) -> int: ...
 
-
-def _add_months(base_dt: datetime, months: int) -> datetime:
-    y = base_dt.year
-    m = base_dt.month + months
-    y += (m - 1) // 12
-    m = (m - 1) % 12 + 1
-    max_day = monthrange(y, m)[1]
-    d = min(base_dt.day, max_day)
-    return base_dt.replace(year=y, month=m, day=d)
-
-
-def compute_next_run_at(current_run_at: datetime, recurrence_rule: str | None) -> datetime | None:
-    if not recurrence_rule:
-        return None
-    parts: dict[str, str] = {}
-    for token in recurrence_rule.split(";"):
-        if "=" not in token:
-            continue
-        k, v = token.split("=", 1)
-        parts[k.strip().upper()] = v.strip().upper()
-
-    freq = parts.get("FREQ")
-    if not freq:
-        return None
-    try:
-        interval = max(1, int(parts.get("INTERVAL", "1")))
-    except ValueError:
-        interval = 1
-
-    if freq == "DAILY":
-        candidate = current_run_at + timedelta(days=interval)
-    elif freq == "HOURLY":
-        candidate = current_run_at + timedelta(hours=interval)
-    elif freq == "WEEKLY":
-        candidate = current_run_at + timedelta(weeks=interval)
-    elif freq == "MONTHLY":
-        candidate = _add_months(current_run_at, interval)
-    else:
-        return None
-
-    until_raw = parts.get("UNTIL")
-    if not until_raw:
-        return candidate
-    until_dt = _parse_until(until_raw, reference=current_run_at)
-    if until_dt is None:
-        return candidate
-    if candidate > until_dt:
-        return None
-    return candidate
-
-
-def _parse_until(until_raw: str, reference: datetime) -> datetime | None:
-    raw = until_raw.strip()
-    if raw.endswith("Z"):
-        compact = raw[:-1]
-        for fmt in ("%Y%m%dT%H%M%S", "%Y%m%dT%H%M"):
-            try:
-                return datetime.strptime(compact, fmt).replace(tzinfo=timezone.utc)
-            except ValueError:
-                continue
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=reference.tzinfo or timezone.utc)
-    return parsed
+    async def create_one(
+        self,
+        chat_id: int,
+        text: str,
+        run_at: datetime,
+        recurrence_rule: str | None = None,
+        series_id: str | None = None,
+    ): ...
 
 
 async def dispatch_due_with_repository(
@@ -98,6 +46,8 @@ async def dispatch_due_with_repository(
     batch_size: int = 100,
 ) -> int:
     now = now or datetime.now(timezone.utc)
+    settings = get_settings()
+    now_local = now.astimezone(ZoneInfo(settings.app_timezone))
     due_items = await repository.list_due_pending(until_dt=now, limit=batch_size)
     if not due_items:
         return 0
@@ -106,12 +56,21 @@ async def dispatch_due_with_repository(
     rescheduled_count = 0
     for item in due_items:
         try:
+            is_pre_reminder = is_internal_pre_reminder(item.text)
             await bot.send_message(chat_id=item.chat_id, text=f"Напоминание: {unwrap_internal_text(item.text)}")
             next_run_at = compute_next_run_at(item.run_at, getattr(item, "recurrence_rule", None))
             if next_run_at is None:
                 sent_once_ids.append(item.id)
             else:
                 await repository.reschedule(item.id, next_run_at)
+                if not is_pre_reminder and should_create_pre_reminder(run_at_utc=next_run_at, now_local=now_local):
+                    await repository.create_one(
+                        chat_id=item.chat_id,
+                        text=build_pre_reminder_text(unwrap_internal_text(item.text)),
+                        run_at=next_run_at - timedelta(hours=1),
+                        recurrence_rule=None,
+                        series_id=getattr(item, "series_id", None),
+                    )
                 rescheduled_count += 1
         except Exception:
             logger.exception("Failed to send reminder id=%s chat_id=%s", item.id, item.chat_id)

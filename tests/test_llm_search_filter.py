@@ -30,7 +30,7 @@ class DummyClient:
 
 
 @pytest.mark.asyncio
-async def test_list_query_refined_with_search_filter() -> None:
+async def test_list_query_without_refinement_keeps_primary_result_for_search_case() -> None:
     client = DummyClient(
         [
             '{"command":"list_reminders","mode":"all"}',
@@ -44,12 +44,12 @@ async def test_list_query_refined_with_search_filter() -> None:
         now=datetime(2026, 2, 22, 12, 0, tzinfo=timezone.utc),
     )
     assert command.command == "list_reminders"
-    assert command.mode == "search"
-    assert command.search_text == "молок"
+    assert command.mode == "all"
+    assert command.search_text is None
 
 
 @pytest.mark.asyncio
-async def test_list_query_refined_with_date_range() -> None:
+async def test_list_query_without_refinement_keeps_primary_result_for_range_case() -> None:
     client = DummyClient(
         [
             '{"command":"list_reminders","mode":"all"}',
@@ -62,9 +62,9 @@ async def test_list_query_refined_with_date_range() -> None:
         now=datetime(2026, 2, 22, 12, 0, tzinfo=timezone.utc),
     )
     assert command.command == "list_reminders"
-    assert command.mode == "range"
-    assert command.from_dt == datetime(2026, 2, 24, 0, 0, tzinfo=timezone.utc)
-    assert command.to_dt == datetime(2026, 2, 26, 23, 59, 59, 999999, tzinfo=timezone.utc)
+    assert command.mode == "all"
+    assert command.from_dt is None
+    assert command.to_dt is None
 
 
 @pytest.mark.asyncio

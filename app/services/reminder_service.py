@@ -1,10 +1,14 @@
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
-from calendar import monthrange
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from app.core.internal_reminders import build_pre_reminder_text, is_internal_pre_reminder, unwrap_internal_text
+from app.core.internal_reminders import (
+    build_pre_reminder_text,
+    is_internal_pre_reminder,
+    should_create_pre_reminder,
+    unwrap_internal_text,
+)
 from app.core.settings import get_settings
 from app.models.reminder import ReminderStatus
 from app.repositories.reminder_repository import ReminderRepository
@@ -67,7 +71,6 @@ class ReminderService:
             run_at = resolve_default_run_at(reminder, now)
             run_at_local = run_at.replace(tzinfo=local_tz) if run_at.tzinfo is None else run_at
             run_at_utc = run_at_local.astimezone(timezone.utc)
-            scheduled_runs = _expand_recurrence_run_times(run_at_utc, reminder.recurrence_rule)
             series_id: str | None = None
             if reminder.recurrence_rule:
                 series_id = str(uuid4())
@@ -77,30 +80,26 @@ class ReminderService:
                     source_text=reminder.text,
                     recurrence_rule=reminder.recurrence_rule,
                 )
-            tomorrow_date = (now + timedelta(days=1)).date()
-
-            for scheduled_run in scheduled_runs:
-                run_local = scheduled_run.astimezone(local_tz)
-                if run_local.date() >= tomorrow_date:
-                    payload.append(
-                        {
-                            "chat_id": chat_id,
-                            "text": build_pre_reminder_text(reminder.text),
-                            "run_at": scheduled_run - timedelta(hours=1),
-                            "recurrence_rule": None,
-                            "series_id": series_id,
-                        }
-                    )
-
+            if should_create_pre_reminder(run_at_utc=run_at_utc, now_local=now):
                 payload.append(
                     {
                         "chat_id": chat_id,
-                        "text": reminder.text,
-                        "run_at": scheduled_run,
+                        "text": build_pre_reminder_text(reminder.text),
+                        "run_at": run_at_utc - timedelta(hours=1),
                         "recurrence_rule": None,
                         "series_id": series_id,
                     }
                 )
+
+            payload.append(
+                {
+                    "chat_id": chat_id,
+                    "text": reminder.text,
+                    "run_at": run_at_utc,
+                    "recurrence_rule": reminder.recurrence_rule,
+                    "series_id": series_id,
+                }
+            )
 
         created = await self._repository.create_many(payload)
         return [
@@ -222,55 +221,3 @@ class ReminderService:
         if command.status == "deleted":
             selection.include_deleted = True
         return selection
-
-
-def _add_months(base_dt: datetime, months: int) -> datetime:
-    y = base_dt.year
-    m = base_dt.month + months
-    y += (m - 1) // 12
-    m = (m - 1) % 12 + 1
-    max_day = monthrange(y, m)[1]
-    d = min(base_dt.day, max_day)
-    return base_dt.replace(year=y, month=m, day=d)
-
-
-def _expand_recurrence_run_times(run_at_utc: datetime, recurrence_rule: str | None) -> list[datetime]:
-    if not recurrence_rule:
-        return [run_at_utc]
-
-    parts: dict[str, str] = {}
-    for token in recurrence_rule.split(";"):
-        if "=" not in token:
-            continue
-        key, value = token.split("=", 1)
-        parts[key.strip().upper()] = value.strip().upper()
-
-    freq = parts.get("FREQ")
-    if not freq:
-        return [run_at_utc]
-    try:
-        interval = max(1, int(parts.get("INTERVAL", "1")))
-    except ValueError:
-        interval = 1
-
-    default_counts = {
-        "HOURLY": 24,
-        "DAILY": 7,
-        "WEEKLY": 4,
-        "MONTHLY": 12,
-    }
-    target_count = default_counts.get(freq, 1)
-    runs: list[datetime] = [run_at_utc]
-    for _ in range(target_count - 1):
-        prev = runs[-1]
-        if freq == "HOURLY":
-            runs.append(prev + timedelta(hours=interval))
-        elif freq == "DAILY":
-            runs.append(prev + timedelta(days=interval))
-        elif freq == "WEEKLY":
-            runs.append(prev + timedelta(weeks=interval))
-        elif freq == "MONTHLY":
-            runs.append(_add_months(prev, interval))
-        else:
-            return [run_at_utc]
-    return runs

@@ -76,16 +76,16 @@ async def test_create_with_recurrence_rule() -> None:
     )
     now = datetime(2026, 2, 22, 10, 15, tzinfo=timezone.utc)
     created = await service.create_from_command(chat_id=123, command=cmd, now=now)
-    assert len(created) == 7
+    assert len(created) == 1
     assert created[0].run_at == datetime(2026, 2, 23, 9, 0, tzinfo=timezone.utc)
-    assert created[-1].run_at == datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
-    assert created[0].recurrence_rule is None
-    assert len(repo.saved_payload) == 14
+    assert created[0].recurrence_rule == "FREQ=DAILY"
+    assert len(repo.saved_payload) == 2
     assert len(repo.created_series) == 1
     assert repo.created_series[0]["recurrence_rule"] == "FREQ=DAILY"
     assert repo.saved_payload[0]["series_id"] is not None
     assert repo.saved_payload[0]["text"].startswith(INTERNAL_PRE_REMINDER_PREFIX)
     assert repo.saved_payload[0]["run_at"] == datetime(2026, 2, 23, 8, 0, tzinfo=timezone.utc)
+    assert repo.saved_payload[1]["recurrence_rule"] == "FREQ=DAILY"
 
 
 async def test_create_keeps_explicit_recurrence_until() -> None:
@@ -106,9 +106,10 @@ async def test_create_keeps_explicit_recurrence_until() -> None:
     )
     now = datetime(2026, 2, 22, 10, 15, tzinfo=timezone.utc)
     created = await service.create_from_command(chat_id=123, command=cmd, now=now)
-    assert len(created) == 24
-    assert created[0].recurrence_rule is None
+    assert len(created) == 1
+    assert created[0].recurrence_rule == "FREQ=HOURLY;UNTIL=2026-02-23T15:00:00+00:00"
     assert len(repo.created_series) == 1
+    assert len(repo.saved_payload) == 2
 
 
 async def test_create_today_single_notification_only() -> None:

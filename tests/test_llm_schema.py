@@ -127,6 +127,31 @@ def test_repair_create_command_dates_infers_today_from_text() -> None:
     assert reminder.time_value == "12:15"
     assert reminder.run_at is None
 
+
+def test_repair_create_command_dates_is_disabled_for_multi_reminder() -> None:
+    payload = {
+        "command": "create_reminders",
+        "reminders": [
+            {
+                "text": "задача 1",
+                "run_at": "2024-06-05T12:15:00+03:00",
+                "explicit_time_provided": True,
+            },
+            {
+                "text": "задача 2",
+                "run_at": "2024-06-06T09:00:00+03:00",
+                "explicit_time_provided": True,
+            },
+        ],
+    }
+    command = parse_assistant_command(payload)
+    service = LLMService()
+    fixed = service._repair_create_command_dates(
+        command=command,
+        user_text="Сегодня в 12:15 задача 1, а завтра в 09:00 задача 2.",
+    )
+    assert fixed == command
+
 def test_specific_date_legacy_field_is_accepted() -> None:
     payload = {
         "command": "create_reminders",

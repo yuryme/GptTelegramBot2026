@@ -201,6 +201,8 @@ class LLMService:
     def _repair_create_command_dates(self, *, command: AssistantCommand, user_text: str) -> AssistantCommand:
         if command.command != CommandName.create:
             return command
+        if len(command.reminders) != 1:
+            return command
 
         text = user_text.lower()
         inferred_day_ref: DayReference | None = None
