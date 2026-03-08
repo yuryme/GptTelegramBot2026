@@ -103,6 +103,14 @@ curl http://localhost:8000/healthz
 
 Важно: сервер не синхронизируется с GitHub автоматически, деплой выполняется отдельным шагом.
 
+## Защита кодировки (UTF-8)
+
+- Единый стандарт кодировки задается в `.editorconfig` (`utf-8`, без BOM).
+- Пользовательские русские строки вынесены в `locales/ru.json`; в Python-коде используются ключи локализации.
+- Автопроверка кодировки и признаков mojibake: `python scripts/check_encoding.py`.
+- Локально проверка может запускаться через `pre-commit` (`.pre-commit-config.yaml`).
+- В CI проверка выполняется workflow `.github/workflows/encoding-check.yml`.
+
 ## Документация
 
 - План проекта: `PROJECT_PLAN.md`

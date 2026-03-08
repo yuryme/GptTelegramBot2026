@@ -7,6 +7,7 @@ from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
+from app.core.i18n import t
 from app.core.settings import get_settings
 from app.db.session import SessionLocal
 from app.repositories.reminder_repository import ReminderRepository
@@ -33,12 +34,12 @@ chat_rate_limiter = ChatRateLimiter(
 )
 display_tz = ZoneInfo(settings.app_timezone)
 
-BTN_SHOW_TODAY = "Показать напоминания на сегодня"
-BTN_SHOW_ALL = "Показать все напоминания"
-BTN_SETTINGS = "Настройка"
-BTN_MODELS = "Модели"
-BTN_LIMITS = "Лимиты"
-BTN_BACK = "Назад"
+BTN_SHOW_TODAY = t("btn_show_today")
+BTN_SHOW_ALL = t("btn_show_all")
+BTN_SETTINGS = t("btn_settings")
+BTN_MODELS = t("btn_models")
+BTN_LIMITS = t("btn_limits")
+BTN_BACK = t("btn_back")
 MAX_MODEL_BUTTONS = 12
 _chat_model_choices: dict[int, dict[str, str]] = {}
 
@@ -83,16 +84,16 @@ def _format_run_at(dt) -> str:
 
 def _format_status(status: str) -> str:
     mapping = {
-        "pending": "в ожидании",
-        "done": "выполнено",
-        "deleted": "удалено",
+        "pending": t("status_pending"),
+        "done": t("status_done"),
+        "deleted": t("status_deleted"),
     }
     return mapping.get(status, status)
 
 
 async def on_start_message(message: Message) -> None:
     await message.answer(
-        "Выберите действие кнопкой ниже или отправьте запрос текстом.",
+        t("start_choose_action"),
         reply_markup=_main_keyboard(),
     )
 
@@ -104,26 +105,26 @@ async def _handle_business_text(
     source_text: str,
 ) -> None:
     if not chat_rate_limiter.allow(message.chat.id):
-        await message.answer("Слишком много запросов. Подождите немного и попробуйте снова.")
+        await message.answer(t("too_many_requests"))
         return
 
     try:
         command = await llm_service.build_command(text)
     except LLMBudgetExceededError:
-        await message.answer("Лимит запросов к модели на текущий месяц исчерпан.")
+        await message.answer(t("llm_budget_exceeded"))
         return
     except LLMRateLimitError:
-        await message.answer("Сервис модели временно недоступен: превышен лимит/квота OpenAI. Попробуйте позже.")
+        await message.answer(t("llm_rate_limit"))
         return
     except LLMCircuitOpenError:
-        await message.answer("Сервис модели временно перегружен. Попробуйте через минуту.")
+        await message.answer(t("llm_circuit_open"))
         return
     except LLMCommandValidationError:
-        await message.answer("Не удалось понять команду. Уточните текст запроса.")
+        await message.answer(t("command_not_understood"))
         return
     except Exception:
-        logger.exception("Ошибка вызова LLM")
-        await message.answer("Ошибка обработки запроса. Попробуйте еще раз.")
+        logger.exception("LLM request failed")
+        await message.answer(t("processing_error"))
         return
 
     try:
@@ -133,7 +134,7 @@ async def _handle_business_text(
             if command.command == CommandName.create:
                 created = await service.create_from_command(chat_id=message.chat.id, command=command)
                 if not created:
-                    await message.answer("Напоминания не созданы.")
+                    await message.answer(t("nothing_created"))
                     return
                 await service._repository.log_action(
                     action_id=str(uuid4()),
@@ -144,7 +145,7 @@ async def _handle_business_text(
                     parsed_command=command.model_dump(mode="json"),
                     result_stats={"created": len(created), "matched": len(created), "changed": len(created)},
                 )
-                lines = ["Созданные напоминания:"]
+                lines = [t("created_reminders")]
                 for idx, item in enumerate(created, start=1):
                     lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")
                     lines.append(f"   {item.text}")
@@ -154,7 +155,7 @@ async def _handle_business_text(
             if command.command == CommandName.list_items:
                 items = await service.list_from_command(chat_id=message.chat.id, command=command)
                 if not items:
-                    await message.answer("Напоминания не найдены.")
+                    await message.answer(t("nothing_found"))
                     return
                 await service._repository.log_action(
                     action_id=str(uuid4()),
@@ -165,9 +166,9 @@ async def _handle_business_text(
                     parsed_command=command.model_dump(mode="json"),
                     result_stats={"matched": len(items), "created": 0, "changed": 0},
                 )
-                lines = ["Найденные напоминания:"]
+                lines = [t("found_reminders")]
                 for idx, item in enumerate(items, start=1):
-                    rec = f", повтор: {item.recurrence_rule}" if item.recurrence_rule else ""
+                    rec = f"{t('recurrence_prefix')}{item.recurrence_rule}" if item.recurrence_rule else ""
                     lines.append(f"{idx}. #{item.id} [{_format_status(item.status)}] | {_format_run_at(item.run_at)}{rec}")
                     lines.append(f"   {item.text}")
                 await message.answer("\n".join(lines))
@@ -176,7 +177,7 @@ async def _handle_business_text(
             if command.command == CommandName.delete:
                 deleted = await service.delete_from_command(chat_id=message.chat.id, command=command)
                 if deleted.deleted_count == 0:
-                    await message.answer("Подходящие напоминания не найдены, ничего не удалено.")
+                    await message.answer(t("deleted_nothing"))
                     return
                 await service._repository.log_action(
                     action_id=str(uuid4()),
@@ -187,24 +188,24 @@ async def _handle_business_text(
                     parsed_command=command.model_dump(mode="json"),
                     result_stats={"matched": len(deleted.items), "created": 0, "changed": deleted.deleted_count},
                 )
-                lines = [f"Удалено напоминаний: {deleted.deleted_count}"]
+                lines = [t("deleted_count").format(count=deleted.deleted_count)]
                 for idx, item in enumerate(deleted.items, start=1):
                     lines.append(f"{idx}. #{item.id} | {_format_run_at(item.run_at)}")
                     lines.append(f"   {item.text}")
                 await message.answer("\n".join(lines))
                 return
     except Exception:
-        logger.exception("Ошибка бизнес-обработки команды")
-        await message.answer("Ошибка обработки запроса. Попробуйте еще раз.")
+        logger.exception("Business command handling failed")
+        await message.answer(t("processing_error"))
         return
 
-    await message.answer("На текущем этапе эта команда еще не поддерживается.")
+    await message.answer(t("command_not_supported"))
 
 
 @router.message(F.text)
 async def on_text_message(message: Message) -> None:
     if not message.text:
-        await message.answer("Нужен текст запроса.")
+        await message.answer(t("need_text"))
         return
 
     text = message.text.strip()
@@ -213,40 +214,40 @@ async def on_text_message(message: Message) -> None:
         return
 
     text_lc = text.lower()
-    if text == BTN_SETTINGS or text_lc.startswith("настрой"):
-        await message.answer("Раздел настроек:", reply_markup=_settings_keyboard())
+    if text == BTN_SETTINGS or text_lc.startswith(BTN_SETTINGS.lower()):
+        await message.answer(t("settings_section"), reply_markup=_settings_keyboard())
         return
-    if text == BTN_BACK or text_lc == "назад":
+    if text == BTN_BACK or text_lc == BTN_BACK.lower():
         _chat_model_choices.pop(message.chat.id, None)
-        await message.answer("Главное меню:", reply_markup=_main_keyboard())
+        await message.answer(t("main_menu"), reply_markup=_main_keyboard())
         return
-    if text == BTN_MODELS or text_lc.startswith("модел"):
+    if text == BTN_MODELS or text_lc.startswith(BTN_MODELS.lower()):
         models = await llm_service.list_accessible_models()
         _chat_model_choices[message.chat.id] = {model: model for model in models}
-        lines = ["Доступные модели для вашего ключа:"]
+        lines = [t("available_models")]
         for model in models[:MAX_MODEL_BUTTONS]:
             price = llm_service.get_model_price_per_1m(model)
             if price is None:
-                lines.append(f"- {model}: цена за 1M токенов не указана")
+                lines.append(f"- {model}: {t('price_unknown')}")
             else:
                 lines.append(f"- {model}: input ${price[0]:.2f}/1M, output ${price[1]:.2f}/1M")
-        lines.append(f"Текущая модель: {llm_service.active_model}")
+        lines.append(t("current_model").format(model=llm_service.active_model))
         await message.answer(
             "\n".join(lines),
             reply_markup=_models_keyboard(models),
         )
         return
-    if text == BTN_LIMITS or text_lc.startswith("лимит"):
+    if text == BTN_LIMITS or text_lc.startswith(BTN_LIMITS.lower()):
         account_snapshot = await llm_service.get_account_limit_snapshot()
         if account_snapshot is not None:
             await message.answer(
                 "\n".join(
                     [
-                        f"Лимит API-аккаунта: ${account_snapshot['hard_limit_usd']:.2f}",
-                        f"Потрачено в этом месяце: ${account_snapshot['spent_usd']:.2f}",
-                        f"Остаток лимита: ${account_snapshot['remaining_usd']:.2f}",
+                        t("api_limit").format(value=account_snapshot["hard_limit_usd"]),
+                        t("api_spent").format(value=account_snapshot["spent_usd"]),
+                        t("api_remaining").format(value=account_snapshot["remaining_usd"]),
                         "",
-                        f"Локальный лимит бота: ${settings.openai_monthly_budget_usd:.2f}",
+                        t("local_limit").format(value=settings.openai_monthly_budget_usd),
                     ]
                 ),
                 reply_markup=_settings_keyboard(),
@@ -255,10 +256,10 @@ async def on_text_message(message: Message) -> None:
         await message.answer(
             "\n".join(
                 [
-                    f"Месячный лимит: ${settings.openai_monthly_budget_usd}",
-                    f"Оценка входа за 1K токенов: ${settings.openai_estimated_input_cost_per_1k}",
-                    f"Оценка выхода за 1K токенов: ${settings.openai_estimated_output_cost_per_1k}",
-                    "API-лимит аккаунта недоступен для текущего ключа.",
+                    t("monthly_limit").format(value=settings.openai_monthly_budget_usd),
+                    t("input_cost").format(value=settings.openai_estimated_input_cost_per_1k),
+                    t("output_cost").format(value=settings.openai_estimated_output_cost_per_1k),
+                    t("api_limit_unavailable"),
                 ]
             ),
             reply_markup=_settings_keyboard(),
@@ -270,7 +271,7 @@ async def on_text_message(message: Message) -> None:
         selected = model_choices[text]
         llm_service.set_active_model(selected)
         await message.answer(
-            f"Активная модель изменена: {selected}",
+            t("active_model_changed").format(model=selected),
             reply_markup=_settings_keyboard(),
         )
         return
@@ -281,12 +282,12 @@ async def on_text_message(message: Message) -> None:
 async def on_voice_message(message: Message) -> None:
     media = message.voice or message.audio
     if media is None:
-        await message.answer("Не удалось прочитать голосовое сообщение.")
+        await message.answer(t("voice_unreadable"))
         return
 
     file_id = getattr(media, "file_id", None)
     if not file_id:
-        await message.answer("Не удалось получить файл для распознавания.")
+        await message.answer(t("voice_file_missing"))
         return
 
     filename = "voice.ogg"
@@ -294,11 +295,11 @@ async def on_voice_message(message: Message) -> None:
     if isinstance(file_name_attr, str) and file_name_attr.strip():
         filename = file_name_attr.strip()
 
-    await message.answer("Распознаю речь...")
+    await message.answer(t("voice_recognizing"))
     try:
         tg_file = await message.bot.get_file(file_id)
         if not tg_file.file_path:
-            await message.answer("Файл недоступен для скачивания.")
+            await message.answer(t("voice_file_unavailable"))
             return
         buffer = io.BytesIO()
         await message.bot.download_file(tg_file.file_path, destination=buffer)
@@ -307,15 +308,15 @@ async def on_voice_message(message: Message) -> None:
             filename=filename,
         )
     except Exception:
-        logger.exception("Ошибка при обработке голосового сообщения")
-        await message.answer("Ошибка при обработке голосового сообщения.")
+        logger.exception("Voice message handling failed")
+        await message.answer(t("voice_processing_error"))
         return
 
     if not transcript:
-        await message.answer("Не удалось распознать речь. Попробуйте говорить чуть четче.")
+        await message.answer(t("voice_not_recognized"))
         return
 
-    await message.answer(f"Распознано: {transcript}")
+    await message.answer(t("voice_recognized").format(text=transcript))
     await _handle_business_text(message=message, text=transcript, source_text=f"[voice] {transcript}")
 
 
