@@ -134,3 +134,35 @@ def test_semantic_draft_for_list_passthrough() -> None:
     command = compiler.compile_to_command(draft=draft)
     assert command.command == "list_reminders"
     assert command.mode == "today"
+
+
+@pytest.mark.parametrize(
+    ("reminder_text", "raw_context", "expected"),
+    [
+        ("что сегодня начинаем новую неделю", "Напомни, что сегодня начинаем новую неделю", "сегодня начинаем новую неделю"),
+        ("что завтра нужно купить торт", "напомни что завтра нужно купить торт", "завтра нужно купить торт"),
+        ("что завтра нужно купить торт", None, "завтра нужно купить торт"),
+        ("напомни: позвонить родителям", "напомни: позвонить родителям", "позвонить родителям"),
+        ("чтобы отправить отчет", "напомни чтобы отправить отчет", "отправить отчет"),
+        ("что важно в тексте", "сегодня обсуждаем что важно в тексте", "что важно в тексте"),
+    ],
+)
+def test_wrapper_marker_cleanup_for_reminder_text(reminder_text: str, raw_context: str | None, expected: str) -> None:
+    payload = {
+        "intent": "create_reminders",
+        "create_items": [
+            {
+                "reminder_text": reminder_text,
+                "day_expression": "сегодня",
+                "time_expression": None,
+                "date_expression": None,
+                "recurrence_expression": None,
+                "raw_context": raw_context,
+            }
+        ],
+        "passthrough_command": None,
+    }
+    draft = parse_semantic_command_draft(payload)
+    compiler = SemanticDraftCompiler()
+    command = compiler.compile_to_command(draft=draft)
+    assert command.reminders[0].text == expected

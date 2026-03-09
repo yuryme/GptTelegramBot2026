@@ -235,6 +235,7 @@
 - [x] Reuse temporal normalization after deterministic compilation.
 - [x] Keep backward compatibility for legacy final-command JSON during transition.
 - [x] Add mandatory tests for complex Russian phrases: verify semantic draft payload and compiled final command.
+- [ ] Minor follow-up: refine wrapper cleanup for phrase form `напомни чтобы ...` so reminder text starts directly from content (`я позвонил врачу`), without preserving wrapper particle.
 
 ## Принципы выполнения
 

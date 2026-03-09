@@ -26,8 +26,16 @@ class SemanticDraftCompiler:
         return assistant_command_adapter.validate_python(draft.passthrough_command)
 
     def _compile_create_item(self, item) -> dict[str, object]:
+        cleaned_text = self._cleanup_wrapper_markers(
+            reminder_text=item.reminder_text,
+            raw_context=item.raw_context,
+            day_expression=item.day_expression,
+            time_expression=item.time_expression,
+            date_expression=item.date_expression,
+            recurrence_expression=item.recurrence_expression,
+        )
         result: dict[str, object] = {
-            "text": item.reminder_text.strip(),
+            "text": cleaned_text,
             "explicit_time_provided": False,
         }
 
@@ -65,6 +73,56 @@ class SemanticDraftCompiler:
             result["recurrence_rule"] = item.recurrence_expression.strip()
 
         return result
+
+    def _cleanup_wrapper_markers(
+        self,
+        *,
+        reminder_text: str,
+        raw_context: str | None,
+        day_expression: str | None,
+        time_expression: str | None,
+        date_expression: str | None,
+        recurrence_expression: str | None,
+    ) -> str:
+        text = reminder_text.strip()
+        if not text:
+            return text
+
+        context = (raw_context or "").strip().lower()
+        has_temporal_or_schedule_markers = any(
+            (
+                bool((day_expression or "").strip()),
+                bool((time_expression or "").strip()),
+                bool((date_expression or "").strip()),
+                bool((recurrence_expression or "").strip()),
+            )
+        )
+        has_raw_context = bool(context)
+        looks_like_command_wrapper = "напомни" in context or (
+            not has_raw_context
+            and has_temporal_or_schedule_markers
+            and text.lower().startswith(("что ", "чтобы ", "напомни", "напомни:"))
+        )
+        if not looks_like_command_wrapper:
+            return text
+
+        # Remove command shell markers only at the beginning of extracted reminder text.
+        # We do not remove words globally from the middle of the content.
+        patterns = [
+            re.compile(r"^\s*напомни\s*[:,]?\s+", flags=re.IGNORECASE),
+            re.compile(r"^\s*что\s+", flags=re.IGNORECASE),
+            re.compile(r"^\s*чтобы\s+", flags=re.IGNORECASE),
+        ]
+        normalized = text
+        changed = True
+        while changed:
+            changed = False
+            for pattern in patterns:
+                updated = pattern.sub("", normalized, count=1).strip()
+                if updated != normalized:
+                    normalized = updated
+                    changed = True
+        return normalized or text
 
     def _normalize_time(self, value: str) -> str | None:
         if not value:
