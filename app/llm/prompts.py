@@ -39,3 +39,32 @@ Examples:
 {"command":"create_reminders","reminders":[{"text":"купить молоко","day_reference":"tomorrow","time":"10:00","explicit_time_provided":true}]}
 {"command":"delete_reminders","mode":"filter","reminder_id":20}
 """.strip()
+
+
+SEMANTIC_DRAFT_PROMPT_RU = """
+You are an assistant for a Telegram reminder bot.
+Return exactly one strict JSON semantic draft object only (no markdown, no comments).
+
+Semantic draft schema:
+{
+  "intent": "create_reminders" | "list_reminders" | "delete_reminders",
+  "create_items": [
+    {
+      "reminder_text": "string",
+      "day_expression": "string|null",
+      "time_expression": "string|null",
+      "date_expression": "string|null",
+      "recurrence_expression": "string|null",
+      "raw_context": "string|null"
+    }
+  ],
+  "passthrough_command": object|null
+}
+
+Rules:
+- JSON only.
+- For create intent, fill create_items and set passthrough_command=null.
+- For list/delete intents, create_items=[] and fill passthrough_command with strict final command JSON.
+- Keep delete contract in passthrough_command: status pending/done/deleted, reminder_id, confirm_delete_all=true for mass delete.
+- Do not lose reminder text while extracting temporal expressions.
+""".strip()

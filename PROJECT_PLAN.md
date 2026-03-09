@@ -227,6 +227,15 @@
 - [x] Re-run acceptance profile tests for iteration 1.
 - [x] Confirm `tests/test_prompt_rules.py` passes after prompt fix.
 
+## Этап 24. Semantic draft layer (Iteration 02)
+
+- [x] Add strict semantic draft schema for create scenarios (`SemanticCommandDraft`, `CreateReminderDraft`).
+- [x] Switch LLM create pipeline to semantic draft JSON as first internal layer.
+- [x] Implement deterministic compiler `draft -> final command` in Python without second LLM stage.
+- [x] Reuse temporal normalization after deterministic compilation.
+- [x] Keep backward compatibility for legacy final-command JSON during transition.
+- [x] Add mandatory tests for complex Russian phrases: verify semantic draft payload and compiled final command.
+
 ## Принципы выполнения
 
 - [x] Русский язык во всем пользовательском взаимодействии.

@@ -56,6 +56,7 @@
 
 - `Schema-first`: LLM отдает JSON, который валидируется Pydantic-схемами.
 - `Temporal normalization`: смысловая нормализация даты/времени выполняется отдельным слоем после валидации схемы и до бизнес-исполнения.
+- `Semantic draft layer`: for create flows, LLM returns semantic draft JSON first, then deterministic Python compiles draft -> final executable command JSON.
 - Изменения интерпретации фраз делаются через prompt/схемы, а не через разрастание if/else-логики.
 - Время хранится в UTC, пользовательская интерпретация времени учитывает `app_timezone`.
 - Delete contract in `SYSTEM_PROMPT_RU` is explicitly enforced:

@@ -13,10 +13,12 @@ from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitEr
 from pydantic import ValidationError
 
 from app.core.settings import get_settings
-from app.llm.prompts import SYSTEM_PROMPT_RU
+from app.llm.prompts import SEMANTIC_DRAFT_PROMPT_RU
 from app.schemas.commands import AssistantCommand, assistant_command_adapter
+from app.schemas.semantic_draft import SemanticCommandDraft, semantic_command_draft_adapter
 from app.services.cost_control import MonthlyCostGuard
 from app.services.guardrails import LLMCircuitBreaker
+from app.services.semantic_draft_compiler import SemanticDraftCompilationError, SemanticDraftCompiler
 from app.services.temporal_normalizer import TemporalNormalizer
 
 
@@ -64,6 +66,7 @@ class LLMService:
             open_seconds=settings.llm_circuit_open_seconds,
         )
         self._temporal_normalizer = TemporalNormalizer(timezone=settings.app_timezone)
+        self._semantic_compiler = SemanticDraftCompiler()
         self._known_model_prices_per_1m: dict[str, tuple[float, float]] = {
             # input, output USD per 1M tokens (static reference catalog)
             "gpt-4.1": (2.0, 8.0),
@@ -190,12 +193,20 @@ class LLMService:
 
         raw_output = await self._request_primary_command(user_text=user_text, now=now)
         try:
-            command = parse_assistant_command(raw_output)
+            draft = parse_semantic_command_draft(raw_output)
+            command = self._semantic_compiler.compile_to_command(draft=draft)
         except LLMCommandValidationError:
-            recovered = await self._recover_command_json_with_llm(user_text=user_text, raw_output=raw_output, now=now)
-            if recovered is None:
-                raise
-            command = recovered
+            # Backward compatibility: accept legacy final command JSON from model.
+            try:
+                command = parse_assistant_command(raw_output)
+            except LLMCommandValidationError:
+                recovered = await self._recover_command_json_with_llm(user_text=user_text, raw_output=raw_output, now=now)
+                if recovered is None:
+                    raise
+                command = recovered
+        except SemanticDraftCompilationError as exc:
+            logger.warning("Semantic draft compilation failed: %s", exc)
+            raise LLMCommandValidationError("LLM semantic draft failed compilation") from exc
 
         command = self._temporal_normalizer.normalize_command(command=command, user_text=user_text, now=now)
 
@@ -218,7 +229,7 @@ class LLMService:
                 response = await self._client.responses.create(
                     model=self._model,
                     input=[
-                        {"role": "system", "content": SYSTEM_PROMPT_RU},
+                        {"role": "system", "content": SEMANTIC_DRAFT_PROMPT_RU},
                         {"role": "user", "content": user_prompt},
                     ],
                     temperature=0,
@@ -261,8 +272,8 @@ class LLMService:
     ) -> AssistantCommand | None:
         settings = get_settings()
         prompt = (
-            "Fix invalid assistant output into a strict AssistantCommand JSON. "
-            "Allowed command values: create_reminders, list_reminders, delete_reminders. "
+            "Fix invalid assistant output into a strict SemanticCommandDraft JSON. "
+            "Allowed intent values: create_reminders, list_reminders, delete_reminders. "
             "Return only JSON, no markdown and no explanations."
         )
         user_prompt = (
@@ -286,10 +297,14 @@ class LLMService:
         fixed_output = (response.output_text or "").strip()
         logger.info("LLM recovered raw output: %s", fixed_output)
         try:
-            return parse_assistant_command(fixed_output)
-        except LLMCommandValidationError:
-            logger.warning("Recovered output is still invalid: %s", fixed_output)
-            return None
+            draft = parse_semantic_command_draft(fixed_output)
+            return self._semantic_compiler.compile_to_command(draft=draft)
+        except (LLMCommandValidationError, SemanticDraftCompilationError):
+            try:
+                return parse_assistant_command(fixed_output)
+            except LLMCommandValidationError:
+                logger.warning("Recovered output is still invalid: %s", fixed_output)
+                return None
 
 
 
@@ -310,6 +325,23 @@ def parse_assistant_command(raw_output: str | dict[str, Any]) -> AssistantComman
     except ValidationError as exc:
         logger.warning("LLM schema validation failed. payload=%s errors=%s", payload, exc.errors())
         raise LLMCommandValidationError("LLM command does not match schema") from exc
+
+
+def parse_semantic_command_draft(raw_output: str | dict[str, Any]) -> SemanticCommandDraft:
+    payload: dict[str, Any]
+    if isinstance(raw_output, str):
+        cleaned = _normalize_llm_json_text(raw_output)
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            raise LLMCommandValidationError("LLM output is not valid JSON") from exc
+    else:
+        payload = raw_output
+    try:
+        return semantic_command_draft_adapter.validate_python(payload)
+    except ValidationError as exc:
+        logger.warning("LLM semantic draft validation failed. payload=%s errors=%s", payload, exc.errors())
+        raise LLMCommandValidationError("LLM semantic draft does not match schema") from exc
 
 
 def _normalize_llm_json_text(text: str) -> str:
