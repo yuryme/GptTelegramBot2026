@@ -196,6 +196,13 @@
 - [x] Подключить pre-commit hook для проверки кодировки (`.pre-commit-config.yaml`).
 - [x] Подключить CI-проверку кодировки в GitHub Actions (`.github/workflows/encoding-check.yml`).
 
+## Этап 21. Стабилизация локального рантайма (Windows)
+
+- [x] Добавить поддержку отдельного тестового Telegram-бота для локальных проверок (`TELEGRAM_BOT_TOKEN_TEST`, `TELEGRAM_USE_TEST_BOT`).
+- [x] Переключить runtime-выбор токена на `telegram_active_bot_token`, чтобы исключить конфликт с прод-ботом в polling.
+- [x] Устранить падение scheduler на Windows (`Psycopg cannot use ProactorEventLoop`) через автоматическое использование `asyncpg` для PostgreSQL в локальном Windows-окружении.
+- [x] Подтвердить стабильную работу `dispatch_due_reminders`: job выполняется успешно в интервале без исключений.
+
 ## Принципы выполнения
 
 - [x] Русский язык во всем пользовательском взаимодействии.

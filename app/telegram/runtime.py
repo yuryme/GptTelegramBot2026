@@ -6,7 +6,7 @@ from app.telegram.handlers import create_router
 
 def build_bot() -> Bot:
     settings = get_settings()
-    return Bot(token=settings.telegram_bot_token)
+    return Bot(token=settings.telegram_active_bot_token)
 
 
 def build_dispatcher() -> Dispatcher:

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     app_timezone: str = "Europe/Moscow"
 
     telegram_bot_token: str = Field(default="test-token")
+    telegram_bot_token_test: str | None = Field(default=None)
+    telegram_use_test_bot: bool = Field(default=False)
     telegram_webhook_secret: str = Field(default="dev-secret")
     telegram_webhook_path: str = Field(default="/webhook/telegram")
     telegram_delivery_mode: Literal["webhook", "polling"] = Field(default="webhook")
@@ -33,6 +35,12 @@ class Settings(BaseSettings):
     llm_circuit_failure_threshold: int = Field(default=3)
     llm_circuit_open_seconds: int = Field(default=60)
     webhook_max_update_age_seconds: int = Field(default=300)
+
+    @property
+    def telegram_active_bot_token(self) -> str:
+        if self.telegram_use_test_bot and self.telegram_bot_token_test:
+            return self.telegram_bot_token_test
+        return self.telegram_bot_token
 
 
 @lru_cache(maxsize=1)
