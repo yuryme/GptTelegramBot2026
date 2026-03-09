@@ -13,8 +13,10 @@ Hard rules:
 - For create_reminders: `reminders` must be non-empty.
 - For list_reminders: `mode` must be one of all/today/status/search/range.
 - For delete_reminders: `mode` must be one of filter/last_n.
+- For delete by status use field `status` with values pending/done/deleted.
 - For mass delete without filters set `confirm_delete_all=true`.
 - For delete by id use `reminder_id`.
+- Never use legacy delete keys like `filter_status`, `id`, `reminderId`.
 
 Time/day extraction rules (Russian user input):
 - If exact datetime is given, fill `run_at` in ISO format.

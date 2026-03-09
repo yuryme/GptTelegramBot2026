@@ -221,6 +221,12 @@
 - [x] Перенести текущие согласования и постановки в файловый формат внутри репозитория.
 - [x] Обновить `README.md` и план проекта ссылками на новую структуру.
 
+## Этап 23. Acceptance blocker fix (Iteration 01)
+
+- [x] Restore explicit delete contract in `app/llm/prompts.py` (`pending/done/deleted`, `confirm_delete_all=true`, `reminder_id`).
+- [x] Re-run acceptance profile tests for iteration 1.
+- [x] Confirm `tests/test_prompt_rules.py` passes after prompt fix.
+
 ## Принципы выполнения
 
 - [x] Русский язык во всем пользовательском взаимодействии.

@@ -58,6 +58,10 @@
 - `Temporal normalization`: смысловая нормализация даты/времени выполняется отдельным слоем после валидации схемы и до бизнес-исполнения.
 - Изменения интерпретации фраз делаются через prompt/схемы, а не через разрастание if/else-логики.
 - Время хранится в UTC, пользовательская интерпретация времени учитывает `app_timezone`.
+- Delete contract in `SYSTEM_PROMPT_RU` is explicitly enforced:
+  - status values: `pending/done/deleted`
+  - mass delete requires `confirm_delete_all=true`
+  - delete by id uses `reminder_id`
 
 ## Важные текущие детали
 
