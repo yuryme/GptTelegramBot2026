@@ -1,8 +1,18 @@
 repos:
   - repo: local
     hooks:
-      - id: encoding-check
-        name: encoding-check
-        entry: python scripts/check_encoding.py
+      - id: encoding-utf8-check
+        name: encoding-utf8-check
+        entry: python scripts/check_encoding.py --check --check-type utf8
+        language: system
+        pass_filenames: false
+      - id: encoding-no-bom-check
+        name: encoding-no-bom-check
+        entry: python scripts/check_encoding.py --check --check-type bom
+        language: system
+        pass_filenames: false
+      - id: encoding-mojibake-check
+        name: encoding-mojibake-check
+        entry: python scripts/check_encoding.py --check --check-type mojibake
         language: system
         pass_filenames: false

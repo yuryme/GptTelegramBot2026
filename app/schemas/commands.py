@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
@@ -64,16 +64,16 @@ class ReminderInput(BaseModel):
                 "friday": 4,
                 "saturday": 5,
                 "sunday": 6,
-                "понедельник": 0,
-                "вторник": 1,
-                "среда": 2,
-                "среду": 2,
-                "четверг": 3,
-                "пятница": 4,
-                "пятницу": 4,
-                "суббота": 5,
-                "субботу": 5,
-                "воскресенье": 6,
+                "\u043f\u043e\u043d\u0435\u0434\u0435\u043b\u044c\u043d\u0438\u043a": 0,
+                "\u0432\u0442\u043e\u0440\u043d\u0438\u043a": 1,
+                "\u0441\u0440\u0435\u0434\u0430": 2,
+                "\u0441\u0440\u0435\u0434\u0443": 2,
+                "\u0447\u0435\u0442\u0432\u0435\u0440\u0433": 3,
+                "\u043f\u044f\u0442\u043d\u0438\u0446\u0430": 4,
+                "\u043f\u044f\u0442\u043d\u0438\u0446\u0443": 4,
+                "\u0441\u0443\u0431\u0431\u043e\u0442\u0430": 5,
+                "\u0441\u0443\u0431\u0431\u043e\u0442\u0443": 5,
+                "\u0432\u043e\u0441\u043a\u0440\u0435\u0441\u0435\u043d\u044c\u0435": 6,
             }
             if normalized in weekdays:
                 data["weekday"] = weekdays[normalized]
@@ -141,16 +141,11 @@ def next_weekday(base_dt: datetime, weekday: int) -> datetime:
 
 def resolve_default_run_at(reminder: ReminderInput, now: datetime) -> datetime:
     if reminder.day_reference is not None:
-        # Prefer semantic day reference over model-suggested absolute date.
-        # This protects commands like "today at 12:00" when LLM returns a stale run_at date.
         if reminder.day_reference == DayReference.today:
-            if reminder.explicit_time_provided:
-                time_from_text = _parse_time_text(reminder.time_value or "")
-                if time_from_text is None and reminder.run_at is not None:
-                    run_at_local = reminder.run_at.astimezone(now.tzinfo or timezone.utc)
-                    time_from_text = run_at_local.timetz().replace(tzinfo=None)
-                if time_from_text is not None:
-                    return datetime.combine(now.date(), time_from_text, tzinfo=now.tzinfo or timezone.utc)
+            if reminder.explicit_time_provided and reminder.time_value:
+                parsed_today = _parse_time_text(reminder.time_value)
+                if parsed_today is not None:
+                    return datetime.combine(now.date(), parsed_today, tzinfo=now.tzinfo or timezone.utc)
             rounded = now.replace(minute=0, second=0, microsecond=0)
             if now > rounded:
                 rounded += timedelta(hours=1)
@@ -164,31 +159,12 @@ def resolve_default_run_at(reminder: ReminderInput, now: datetime) -> datetime:
             day_date = next_weekday(now, reminder.weekday or 0).date()
         elif reminder.day_reference == DayReference.specific_date:
             day_date = reminder.date_value or now.date()
-            if day_date <= now.date():
-                if reminder.explicit_time_provided:
-                    # LLM can return stale year for explicit dates from voice/text.
-                    # Preserve month/day and shift to the nearest future year.
-                    try:
-                        candidate = day_date.replace(year=now.year)
-                    except ValueError:
-                        candidate = day_date
-                    if candidate <= now.date():
-                        try:
-                            candidate = candidate.replace(year=now.year + 1)
-                        except ValueError:
-                            pass
-                    day_date = candidate
-                else:
-                    raise ValueError("specific_date must be in the future when time is omitted")
         else:
             raise ValueError("Unsupported day_reference")
 
         default_time = time(hour=8, minute=0)
         if reminder.explicit_time_provided:
             parsed = _parse_time_text(reminder.time_value or "")
-            if parsed is None and reminder.run_at is not None:
-                run_at_local = reminder.run_at.astimezone(now.tzinfo or timezone.utc)
-                parsed = run_at_local.timetz().replace(tzinfo=None)
             if parsed is not None:
                 default_time = parsed
         return datetime.combine(day_date, default_time, tzinfo=now.tzinfo or timezone.utc)

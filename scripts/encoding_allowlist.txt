@@ -1,0 +1,9 @@
+# Encoding guardrails allowlist
+# Format:
+#   issue_type:path_glob
+# or
+#   path_glob
+# issue_type in: utf8, bom, mojibake, all
+#
+# Keep this file minimal and documented.
+mojibake:AGENTS.md

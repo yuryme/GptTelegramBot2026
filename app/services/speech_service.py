@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import logging
 
+import httpx
 from openai import AsyncOpenAI
 
 from app.core.settings import get_settings
@@ -14,7 +15,11 @@ class SpeechToTextService:
     def __init__(self, client: AsyncOpenAI | None = None) -> None:
         settings = get_settings()
         self._model = settings.openai_transcription_model
-        self._client = client or AsyncOpenAI(api_key=settings.openai_api_key, max_retries=0)
+        self._client = client or AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            max_retries=0,
+            http_client=httpx.AsyncClient(trust_env=False, timeout=60.0),
+        )
 
     async def transcribe_bytes(
         self,

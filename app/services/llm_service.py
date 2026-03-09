@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import logging
@@ -14,9 +14,10 @@ from pydantic import ValidationError
 
 from app.core.settings import get_settings
 from app.llm.prompts import SYSTEM_PROMPT_RU
-from app.schemas.commands import AssistantCommand, CommandName, DayReference, assistant_command_adapter
+from app.schemas.commands import AssistantCommand, assistant_command_adapter
 from app.services.cost_control import MonthlyCostGuard
 from app.services.guardrails import LLMCircuitBreaker
+from app.services.temporal_normalizer import TemporalNormalizer
 
 
 class LLMCommandValidationError(ValueError):
@@ -48,7 +49,11 @@ class LLMService:
         settings = get_settings()
         self._model = settings.openai_model
         self._api_key = settings.openai_api_key
-        self._client = client or AsyncOpenAI(api_key=settings.openai_api_key, max_retries=0)
+        self._client = client or AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            max_retries=0,
+            http_client=httpx.AsyncClient(trust_env=False, timeout=30.0),
+        )
         self._cost_guard = cost_guard or MonthlyCostGuard(
             monthly_usd_limit=settings.openai_monthly_budget_usd,
             estimated_input_cost_per_1k=settings.openai_estimated_input_cost_per_1k,
@@ -58,6 +63,7 @@ class LLMService:
             failure_threshold=settings.llm_circuit_failure_threshold,
             open_seconds=settings.llm_circuit_open_seconds,
         )
+        self._temporal_normalizer = TemporalNormalizer(timezone=settings.app_timezone)
         self._known_model_prices_per_1m: dict[str, tuple[float, float]] = {
             # input, output USD per 1M tokens (static reference catalog)
             "gpt-4.1": (2.0, 8.0),
@@ -146,7 +152,7 @@ class LLMService:
         start_date = month_start.strftime("%Y-%m-%d")
         end_date = now.strftime("%Y-%m-%d")
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
+            async with httpx.AsyncClient(timeout=8.0, trust_env=False) as client:
                 sub_resp = await client.get(
                     "https://api.openai.com/dashboard/billing/subscription",
                     headers=headers,
@@ -191,55 +197,12 @@ class LLMService:
                 raise
             command = recovered
 
-        command = self._repair_create_command_dates(command=command, user_text=user_text)
+        command = self._temporal_normalizer.normalize_command(command=command, user_text=user_text, now=now)
 
         # Fast path: skip extra refinement/normalization LLM round-trips.
         # This keeps latency predictable by relying on the primary parsed command.
 
         return command
-
-    def _repair_create_command_dates(self, *, command: AssistantCommand, user_text: str) -> AssistantCommand:
-        if command.command != CommandName.create:
-            return command
-        if len(command.reminders) != 1:
-            return command
-
-        text = user_text.lower()
-        inferred_day_ref: DayReference | None = None
-        if "\u043f\u043e\u0441\u043b\u0435\u0437\u0430\u0432\u0442\u0440\u0430" in text:
-            inferred_day_ref = DayReference.day_after_tomorrow
-        elif "\u0437\u0430\u0432\u0442\u0440\u0430" in text:
-            inferred_day_ref = DayReference.tomorrow
-        elif "\u0441\u0435\u0433\u043e\u0434\u043d\u044f" in text:
-            inferred_day_ref = DayReference.today
-
-        if inferred_day_ref is None:
-            return command
-
-        changed = False
-        fixed_reminders = []
-        for item in command.reminders:
-            if item.day_reference is not None or item.run_at is None:
-                fixed_reminders.append(item)
-                continue
-
-            run_at_value = item.run_at
-            hhmm = run_at_value.strftime("%H:%M")
-            fixed = item.model_copy(
-                update={
-                    "run_at": None,
-                    "day_reference": inferred_day_ref,
-                    "time_value": hhmm,
-                    "explicit_time_provided": True,
-                }
-            )
-            fixed_reminders.append(fixed)
-            changed = True
-
-        if not changed:
-            return command
-
-        return command.model_copy(update={"reminders": fixed_reminders})
 
     async def _request_primary_command(self, *, user_text: str, now: datetime) -> str:
         settings = get_settings()

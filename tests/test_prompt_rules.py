@@ -1,4 +1,4 @@
-﻿from app.llm.prompts import SYSTEM_PROMPT_RU
+from app.llm.prompts import SYSTEM_PROMPT_RU
 
 
 def test_prompt_contains_time_dash_rule() -> None:

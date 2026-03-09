@@ -1,1 +1,1 @@
-﻿"""Telegram integration layer."""
+"""Telegram integration layer."""

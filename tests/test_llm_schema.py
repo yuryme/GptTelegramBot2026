@@ -3,7 +3,8 @@
 import pytest
 
 from app.schemas.commands import DayReference, ReminderInput, resolve_default_run_at
-from app.services.llm_service import LLMCommandValidationError, LLMService, parse_assistant_command
+from app.services.llm_service import LLMCommandValidationError, parse_assistant_command
+from app.services.temporal_normalizer import TemporalNormalizer
 
 
 def test_parse_valid_create_command() -> None:
@@ -88,39 +89,28 @@ def test_weekday_string_and_time_field_are_supported() -> None:
     command = parse_assistant_command(payload)
     reminder = command.reminders[0]
     assert reminder.weekday == 2
-    now = datetime(2026, 2, 22, 11, 0, tzinfo=timezone.utc)  # Sunday
+    now = datetime(2026, 2, 22, 11, 0, tzinfo=timezone.utc)
     resolved = resolve_default_run_at(reminder, now)
     assert resolved == datetime(2026, 2, 25, 10, 30, tzinfo=timezone.utc)
 
 
-def test_day_reference_overrides_stale_run_at_date_for_voice_like_input() -> None:
-    now = datetime(2026, 3, 5, 11, 58, tzinfo=timezone.utc)
-    reminder = ReminderInput(
-        text="я молодец",
-        day_reference=DayReference.today,
-        run_at=datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc),
-        explicit_time_provided=True,
-    )
-    resolved = resolve_default_run_at(reminder, now)
-    assert resolved == datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
-
-
-def test_repair_create_command_dates_infers_today_from_text() -> None:
+def test_temporal_normalizer_infers_today_from_text() -> None:
     payload = {
         "command": "create_reminders",
         "reminders": [
             {
-                "text": "я молодец",
+                "text": "test",
                 "run_at": "2024-06-05T12:15:00+03:00",
                 "explicit_time_provided": True,
             }
         ],
     }
     command = parse_assistant_command(payload)
-    service = LLMService()
-    fixed = service._repair_create_command_dates(
+    normalizer = TemporalNormalizer(timezone="UTC")
+    fixed = normalizer.normalize_command(
         command=command,
-        user_text="Сегодня в 12:15 напомни, что я молодец.",
+        user_text="Сегодня в 12:15 напомни, что я молодец",
+        now=datetime(2026, 3, 5, 11, 58, tzinfo=timezone.utc),
     )
     reminder = fixed.reminders[0]
     assert reminder.day_reference == DayReference.today
@@ -128,29 +118,38 @@ def test_repair_create_command_dates_infers_today_from_text() -> None:
     assert reminder.run_at is None
 
 
-def test_repair_create_command_dates_is_disabled_for_multi_reminder() -> None:
+@pytest.mark.parametrize(
+    ("phrase", "expected_day_ref", "expected_time"),
+    [
+        ("Сегодня в 12:15 напомни позвонить", DayReference.today, "12:15"),
+        ("Завтра в 10 купить молоко", DayReference.tomorrow, "10:00"),
+        ("Послезавтра в 18:30 встреча", DayReference.day_after_tomorrow, "18:30"),
+        ("В среду в 14 созвон", DayReference.weekday, "14:00"),
+        ("Сегодня напомни отправить отчет", DayReference.today, None),
+        ("Завтра напомни купить билеты", DayReference.tomorrow, None),
+    ],
+)
+def test_temporal_normalizer_table_driven_relative_phrases(
+    phrase: str,
+    expected_day_ref: DayReference,
+    expected_time: str | None,
+) -> None:
     payload = {
         "command": "create_reminders",
-        "reminders": [
-            {
-                "text": "задача 1",
-                "run_at": "2024-06-05T12:15:00+03:00",
-                "explicit_time_provided": True,
-            },
-            {
-                "text": "задача 2",
-                "run_at": "2024-06-06T09:00:00+03:00",
-                "explicit_time_provided": True,
-            },
-        ],
+        "reminders": [{"text": "task", "run_at": "2024-06-05T12:15:00+03:00", "explicit_time_provided": True}],
     }
     command = parse_assistant_command(payload)
-    service = LLMService()
-    fixed = service._repair_create_command_dates(
+    normalizer = TemporalNormalizer(timezone="UTC")
+    fixed = normalizer.normalize_command(
         command=command,
-        user_text="Сегодня в 12:15 задача 1, а завтра в 09:00 задача 2.",
+        user_text=phrase,
+        now=datetime(2026, 3, 9, 9, 0, tzinfo=timezone.utc),
     )
-    assert fixed == command
+    reminder = fixed.reminders[0]
+    assert reminder.day_reference == expected_day_ref
+    if expected_time is not None:
+        assert reminder.time_value == expected_time
+
 
 def test_specific_date_legacy_field_is_accepted() -> None:
     payload = {
@@ -172,25 +171,12 @@ def test_specific_date_legacy_field_is_accepted() -> None:
     assert reminder.time_value == "10:00"
 
 
-def test_specific_date_with_explicit_time_rolls_stale_year_forward() -> None:
-    now = datetime(2026, 3, 7, 19, 30, tzinfo=timezone.utc)
-    reminder = ReminderInput(
-        text="test",
-        day_reference=DayReference.specific_date,
-        date_value=date(2024, 3, 10),
-        explicit_time_provided=True,
-        time="10:00",
-    )
-    resolved = resolve_default_run_at(reminder, now)
-    assert resolved == datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc)
-
-
 def test_day_reference_iso_date_string_is_normalized_to_specific_date() -> None:
     payload = {
         "command": "create_reminders",
         "reminders": [
             {
-                "text": "?????????? ?????? ? ???? ????????",
+                "text": "поздравить маму с днем рождения",
                 "day_reference": "2026-03-11",
                 "explicit_time_provided": False,
             }
@@ -200,6 +186,24 @@ def test_day_reference_iso_date_string_is_normalized_to_specific_date() -> None:
     reminder = command.reminders[0]
     assert reminder.day_reference == DayReference.specific_date
     assert reminder.date_value == date(2026, 3, 11)
+
+
+def test_temporal_normalizer_parses_russian_month_date() -> None:
+    payload = {
+        "command": "create_reminders",
+        "reminders": [{"text": "поздравить маму", "run_at": "2026-03-09T09:00:00+00:00", "explicit_time_provided": True}],
+    }
+    command = parse_assistant_command(payload)
+    normalizer = TemporalNormalizer(timezone="UTC")
+    fixed = normalizer.normalize_command(
+        command=command,
+        user_text="10 марта в 9 поздравить маму",
+        now=datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc),
+    )
+    reminder = fixed.reminders[0]
+    assert reminder.day_reference == DayReference.specific_date
+    assert reminder.date_value == date(2026, 3, 10)
+    assert reminder.time_value == "09:00"
 
 
 def test_naive_run_at_is_treated_as_local_time() -> None:
