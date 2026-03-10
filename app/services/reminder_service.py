@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 from app.core.internal_reminders import (
     build_pre_reminder_text,
     is_internal_pre_reminder,
-    should_create_pre_reminder,
     unwrap_internal_text,
 )
 from app.core.settings import get_settings
@@ -18,6 +17,8 @@ from app.schemas.commands import (
     ListRemindersCommand,
     resolve_default_run_at,
 )
+from app.services.display_policy import pre_reminder_delta, should_schedule_pre_reminder
+from app.services.recurring_end_policy import ensure_until_for_rrule
 
 
 @dataclass(slots=True)
@@ -72,34 +73,39 @@ class ReminderService:
             run_at_local = run_at.replace(tzinfo=local_tz) if run_at.tzinfo is None else run_at
             run_at_utc = run_at_local.astimezone(timezone.utc)
             series_id: str | None = None
+            recurrence_rule = reminder.recurrence_rule
             if reminder.recurrence_rule:
+                recurrence_rule, _ = ensure_until_for_rrule(
+                    recurrence_rule=reminder.recurrence_rule,
+                    start_local=run_at_local,
+                )
                 series_id = str(uuid4())
                 await self._repository.create_series(
                     series_id=series_id,
                     chat_id=chat_id,
                     source_text=reminder.text,
-                    recurrence_rule=reminder.recurrence_rule,
+                    recurrence_rule=recurrence_rule,
                 )
-            if should_create_pre_reminder(run_at_utc=run_at_utc, now_local=now):
+            if should_schedule_pre_reminder(run_at_utc=run_at_utc, now_local=now, policy=None):
                 payload.append(
                     {
                         "chat_id": chat_id,
                         "text": build_pre_reminder_text(reminder.text),
-                        "run_at": run_at_utc - timedelta(hours=1),
+                        "run_at": run_at_utc - pre_reminder_delta(None),
                         "recurrence_rule": None,
                         "series_id": series_id,
                     }
                 )
 
             payload.append(
-                {
-                    "chat_id": chat_id,
-                    "text": reminder.text,
-                    "run_at": run_at_utc,
-                    "recurrence_rule": reminder.recurrence_rule,
-                    "series_id": series_id,
-                }
-            )
+                    {
+                        "chat_id": chat_id,
+                        "text": reminder.text,
+                        "run_at": run_at_utc,
+                        "recurrence_rule": recurrence_rule,
+                        "series_id": series_id,
+                    }
+                )
 
         created = await self._repository.create_many(payload)
         return [

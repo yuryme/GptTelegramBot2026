@@ -78,14 +78,14 @@ async def test_create_with_recurrence_rule() -> None:
     created = await service.create_from_command(chat_id=123, command=cmd, now=now)
     assert len(created) == 1
     assert created[0].run_at == datetime(2026, 2, 23, 9, 0, tzinfo=timezone.utc)
-    assert created[0].recurrence_rule == "FREQ=DAILY"
+    assert created[0].recurrence_rule == "FREQ=DAILY;UNTIL=2026-03-01T09:00:59+00:00"
     assert len(repo.saved_payload) == 2
     assert len(repo.created_series) == 1
-    assert repo.created_series[0]["recurrence_rule"] == "FREQ=DAILY"
+    assert repo.created_series[0]["recurrence_rule"] == "FREQ=DAILY;UNTIL=2026-03-01T09:00:59+00:00"
     assert repo.saved_payload[0]["series_id"] is not None
     assert repo.saved_payload[0]["text"].startswith(INTERNAL_PRE_REMINDER_PREFIX)
     assert repo.saved_payload[0]["run_at"] == datetime(2026, 2, 23, 8, 0, tzinfo=timezone.utc)
-    assert repo.saved_payload[1]["recurrence_rule"] == "FREQ=DAILY"
+    assert repo.saved_payload[1]["recurrence_rule"] == "FREQ=DAILY;UNTIL=2026-03-01T09:00:59+00:00"
 
 
 async def test_create_keeps_explicit_recurrence_until() -> None:

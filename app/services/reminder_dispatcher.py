@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Protocol
 
 from aiogram import Bot
@@ -9,13 +9,13 @@ from aiogram import Bot
 from app.core.internal_reminders import (
     build_pre_reminder_text,
     is_internal_pre_reminder,
-    should_create_pre_reminder,
     unwrap_internal_text,
 )
 from app.core.settings import get_settings
 from app.db.session import SessionLocal
 from app.repositories.reminder_repository import ReminderRepository
 from app.services.recurrence import compute_next_run_at
+from app.services.display_policy import pre_reminder_delta, should_schedule_pre_reminder
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -63,11 +63,15 @@ async def dispatch_due_with_repository(
                 sent_once_ids.append(item.id)
             else:
                 await repository.reschedule(item.id, next_run_at)
-                if not is_pre_reminder and should_create_pre_reminder(run_at_utc=next_run_at, now_local=now_local):
+                if not is_pre_reminder and should_schedule_pre_reminder(
+                    run_at_utc=next_run_at,
+                    now_local=now_local,
+                    policy=None,
+                ):
                     await repository.create_one(
                         chat_id=item.chat_id,
                         text=build_pre_reminder_text(unwrap_internal_text(item.text)),
-                        run_at=next_run_at - timedelta(hours=1),
+                        run_at=next_run_at - pre_reminder_delta(None),
                         recurrence_rule=None,
                         series_id=getattr(item, "series_id", None),
                     )

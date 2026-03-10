@@ -7,3 +7,5 @@
 | 2026-03-09 | customer | manager | approved | `active/2026-03-09_customer_to_manager_iteration_01_temporal_normalization.md` | Решение о запуске итерации 1 по централизации temporal normalization |
 | 2026-03-09 | manager | architect | approved | `active/2026-03-09_manager_to_architect_iteration_01_temporal_normalization.md` | ТЗ архитектору на итерацию 1 по централизации логики нормализации даты и времени |
 | 2026-03-10 | manager | architect | approved | `active/2026-03-10_manager_to_architect_iteration_02_semantic_draft_layer.md` | Task for iteration 2: introduce a strict semantic draft JSON layer before final command compilation |
+| 2026-03-10 | manager | architect | approved | `active/2026-03-10_manager_to_architect_iteration_03_recurrence_and_internal_display_policy.md` | Task for iteration 3: explicit internal recurrence and display policy models without public JSON expansion |
+| 2026-03-10 | manager | architect | approved | `active/2026-03-10_manager_to_architect_recurring_end_policy.md` | Согласованное ТЗ на правила определения окончания циклических напоминаний и вычисления `UNTIL` |

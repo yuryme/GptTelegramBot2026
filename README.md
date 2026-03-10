@@ -57,6 +57,8 @@
 - `Schema-first`: LLM отдает JSON, который валидируется Pydantic-схемами.
 - `Temporal normalization`: смысловая нормализация даты/времени выполняется отдельным слоем после валидации схемы и до бизнес-исполнения.
 - `Semantic draft layer`: for create flows, LLM returns semantic draft JSON first, then deterministic Python compiles draft -> final executable command JSON.
+- `Internal recurrence policy layer`: semantic draft compiler now builds explicit internal recurrence model (kind/interval/end) before mapping to legacy `recurrence_rule`.
+- `Internal display policy layer`: pre-reminder behavior is represented by an internal display policy model (auto/disabled/minutes_before) without expanding public command JSON.
 - Изменения интерпретации фраз делаются через prompt/схемы, а не через разрастание if/else-логики.
 - Время хранится в UTC, пользовательская интерпретация времени учитывает `app_timezone`.
 - Delete contract in `SYSTEM_PROMPT_RU` is explicitly enforced:
@@ -150,3 +152,15 @@ curl http://localhost:8000/healthz
 - Управление сервисом с Windows: `scripts/bot_service.bat`
 
 - Совместимость schema-first для create_reminders: при day_reference=specific_date принимаются оба ключа даты (date_value и legacy specific_date) с нормализацией во внутренний date_value.
+
+## Recurring End Policy (Iteration 03+)
+
+- Recurring reminders are no longer open-ended: runtime enforces `UNTIL` for recurring rules if user did not provide explicit end.
+- Default deterministic end boundaries:
+  - `HOURLY` -> end of start day.
+  - `DAILY` -> end of start week (Sunday).
+  - `WEEKLY` -> end of start month.
+  - `MONTHLY` -> end of start year.
+- Explicit user end still has priority (`until_date` / `until_datetime`).
+- Ambiguous end expressions (e.g. `до следующей недели`, `пока не ...`) are rejected at compile stage to avoid silent wrong `UNTIL`.
+- Interval extraction supports Russian forms with step (`каждые 2 часа`, `каждые 2 недели`, `каждые 2 месяца`).

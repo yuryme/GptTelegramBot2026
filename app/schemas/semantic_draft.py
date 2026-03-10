@@ -11,6 +11,9 @@ class CreateReminderDraft(BaseModel):
     time_expression: str | None = None
     date_expression: str | None = None
     recurrence_expression: str | None = None
+    recurrence_until_expression: str | None = None
+    recurrence_interval: int | None = Field(default=None, ge=1, le=365)
+    pre_reminder_expression: str | None = None
     raw_context: str | None = None
 
 

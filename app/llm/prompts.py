@@ -55,6 +55,9 @@ Semantic draft schema:
       "time_expression": "string|null",
       "date_expression": "string|null",
       "recurrence_expression": "string|null",
+      "recurrence_until_expression": "string|null",
+      "recurrence_interval": "int|null",
+      "pre_reminder_expression": "string|null",
       "raw_context": "string|null"
     }
   ],
@@ -67,4 +70,6 @@ Rules:
 - For list/delete intents, create_items=[] and fill passthrough_command with strict final command JSON.
 - Keep delete contract in passthrough_command: status pending/done/deleted, reminder_id, confirm_delete_all=true for mass delete.
 - Do not lose reminder text while extracting temporal expressions.
+- For recurrence phrases, fill recurrence_expression and optional recurrence_until_expression / recurrence_interval.
+- For delivery hints like "за час до" or "без преднапоминания", fill pre_reminder_expression.
 """.strip()

@@ -248,3 +248,21 @@
 - [x] Любые изменения логики проекта сначала согласовываются с пользователем, затем выполняются в коде.
 - [x] Стандарт релиза: разработка локально -> проверка -> commit/push -> деплой на сервер из этого же коммита -> серверный smoke-check.
 - [x] Все ТЗ и согласования между ролями фиксируются в репозитории, в `docs/tasks`, а не только в переписке.
+
+## Stage 25. Recurrence and internal display policy (Iteration 03)
+
+- [x] Add explicit internal recurrence model (one-time/daily/weekly/monthly, interval, end condition) in compiler layer.
+- [x] Add explicit internal display policy model (auto/disabled/minutes_before) for reminder delivery behavior.
+- [x] Keep public external command JSON unchanged (no new public `display_policy` field).
+- [x] Compile recurrence and delivery hints deterministically from semantic draft.
+- [x] Add regression tests for recurring Russian phrases and delivery policy cases from Iteration 03.
+- [x] Move pre-reminder decision calls to dedicated display-policy service entry points (single integration surface).
+- [ ] Follow-up backlog: improve wrapper cleanup for phrase family `напомни чтобы ...` in edge extraction cases.
+
+## Stage 26. Recurring end policy (2026-03-10 manager task)
+
+- [x] Enforce finite recurring series by guaranteeing `UNTIL` for recurring rules in runtime creation flow.
+- [x] Implement deterministic default end boundaries by frequency: HOURLY/day-end, DAILY/week-end, WEEKLY/month-end, MONTHLY/year-end.
+- [x] Keep explicit user end constraints as higher-priority over defaults.
+- [x] Reject ambiguous end expressions in compiler to avoid silent incorrect schedule boundaries.
+- [x] Add regression tests for step-based phrases (`каждые 2 часа`, `каждые 2 недели`, `каждые 2 месяца`) and end-policy behavior.
