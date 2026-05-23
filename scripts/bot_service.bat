@@ -10,8 +10,8 @@ rem   scripts\bot_service.bat logs
 
 set "HOST=5.255.125.171"
 set "USER=root"
-set "PASS=ab41367ccf9e"
 set "SERVICE=telegram-reminder-bot"
+set "SSH=ssh -o BatchMode=yes"
 
 if "%~1"=="" goto :help
 
@@ -26,28 +26,28 @@ echo Unknown action: %ACTION%
 goto :help
 
 :start
-plink -ssh %USER%@%HOST% -pw "%PASS%" -batch "systemctl start %SERVICE% && systemctl is-active %SERVICE%"
+%SSH% %USER%@%HOST% "systemctl start %SERVICE% && systemctl is-active %SERVICE%"
 goto :eof
 
 :stop
-plink -ssh %USER%@%HOST% -pw "%PASS%" -batch "systemctl stop %SERVICE% && systemctl is-active %SERVICE% || true"
+%SSH% %USER%@%HOST% "systemctl stop %SERVICE% && systemctl is-active %SERVICE% || true"
 goto :eof
 
 :restart
-plink -ssh %USER%@%HOST% -pw "%PASS%" -batch "systemctl restart %SERVICE% && systemctl is-active %SERVICE%"
+%SSH% %USER%@%HOST% "systemctl restart %SERVICE% && systemctl is-active %SERVICE%"
 goto :eof
 
 :status
-plink -ssh %USER%@%HOST% -pw "%PASS%" -batch "systemctl status %SERVICE% --no-pager"
+%SSH% %USER%@%HOST% "systemctl status %SERVICE% --no-pager"
 goto :eof
 
 :logs
-plink -ssh %USER%@%HOST% -pw "%PASS%" -batch "journalctl -u %SERVICE% -n 80 --no-pager"
+%SSH% %USER%@%HOST% "journalctl -u %SERVICE% -n 80 --no-pager"
 goto :eof
 
 :help
 echo.
 echo Usage: %~nx0 ^<start^|stop^|restart^|status^|logs^>
 echo.
-echo Before use, update HOST/USER/PASS in this file if needed.
+echo Requires SSH key access for %USER%@%HOST%.
 exit /b 1

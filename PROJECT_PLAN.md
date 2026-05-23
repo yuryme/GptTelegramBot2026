@@ -8,6 +8,7 @@
 - [x] Локальная разработка и проверка: работает стабильно.
 - [x] Актуальные автотесты: `55 passed`.
 - [x] Фактический VPS-деплой выполнен (ручной, polling, без Docker).
+- [x] Управление VPS-сервисом переведено на SSH-key-only без хранения пароля в скрипте.
 - [ ] Ротация ранее скомпрометированных секретов должна быть завершена на стороне пользователя.
 
 ## Этап 1. Основа проекта (MVP foundation)
@@ -266,3 +267,10 @@
 - [x] Keep explicit user end constraints as higher-priority over defaults.
 - [x] Reject ambiguous end expressions in compiler to avoid silent incorrect schedule boundaries.
 - [x] Add regression tests for step-based phrases (`каждые 2 часа`, `каждые 2 недели`, `каждые 2 месяца`) and end-policy behavior.
+
+## Stage 27. VPS access hardening
+
+- [x] Configure OpenSSH key access from the local Windows environment to `root@5.255.125.171`.
+- [x] Remove the plaintext VPS password from `scripts/bot_service.bat`.
+- [x] Update service management script to use SSH batch mode instead of password-based `plink`.
+- [ ] Rotate the previously exposed VPS root password outside the repository workflow.
