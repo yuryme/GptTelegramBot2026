@@ -290,8 +290,9 @@
 ## Stage 29. HTTP STT provider abstraction
 
 - [x] Add `STT_PROVIDER=http` support in `SpeechToTextService`.
+- [x] Add `STT_PROVIDER=groq` support for Groq Whisper API without local model memory usage.
 - [x] Define production-friendly STT HTTP contract: raw audio body -> JSON `text` response.
 - [x] Add local faster-whisper HTTP server for Windows development/testing.
 - [x] Add background process control script for local STT (`scripts/stt_local.bat`).
 - [x] Keep local bot and STT starts non-blocking via PID/log files under `run/`.
-- [ ] Decide production STT hosting target for low-memory VPS constraints.
+- [x] Select Groq STT as low-memory production transcription target for small voice volume.

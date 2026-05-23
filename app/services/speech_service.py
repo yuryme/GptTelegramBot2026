@@ -17,13 +17,18 @@ class SpeechToTextService:
         self,
         client: AsyncOpenAI | None = None,
         http_client: httpx.AsyncClient | None = None,
-        provider: Literal["openai", "http"] | None = None,
+        provider: Literal["openai", "http", "groq"] | None = None,
+        groq_api_key: str | None = None,
     ) -> None:
         settings = get_settings()
         self._provider = provider or settings.stt_provider
-        self._model = settings.openai_transcription_model
+        self._model = settings.groq_stt_model if self._provider == "groq" else settings.openai_transcription_model
         self._http_url = settings.stt_http_url
         self._http_timeout = settings.stt_http_timeout_seconds
+        self._groq_url = settings.groq_stt_base_url.rstrip("/") + "/audio/transcriptions"
+        self._groq_api_key = groq_api_key or settings.groq_api_key
+        self._groq_language = settings.groq_stt_language
+        self._groq_timeout = settings.groq_stt_timeout_seconds
         self._http_client = http_client
         self._client = client
         if self._provider == "openai" and self._client is None:
@@ -44,6 +49,8 @@ class SpeechToTextService:
 
         if self._provider == "http":
             return await self._transcribe_via_http(payload=payload, filename=filename)
+        if self._provider == "groq":
+            return await self._transcribe_via_groq(payload=payload, filename=filename)
 
         stream = io.BytesIO(payload)
         stream.name = filename
@@ -60,6 +67,37 @@ class SpeechToTextService:
         text = getattr(result, "text", None)
         if text is None and isinstance(result, str):
             text = result
+        if not isinstance(text, str):
+            return None
+        text = text.strip()
+        return text or None
+
+    async def _transcribe_via_groq(self, *, payload: bytes, filename: str) -> str | None:
+        if not self._groq_api_key:
+            logger.error("GROQ_API_KEY is required for Groq STT provider")
+            return None
+
+        headers = {"Authorization": f"Bearer {self._groq_api_key}"}
+        data = {
+            "model": self._model,
+            "language": self._groq_language,
+            "response_format": "json",
+            "temperature": "0",
+        }
+        files = {"file": (filename, payload)}
+        try:
+            if self._http_client is not None:
+                response = await self._http_client.post(self._groq_url, data=data, files=files, headers=headers)
+            else:
+                async with httpx.AsyncClient(timeout=self._groq_timeout, trust_env=False) as client:
+                    response = await client.post(self._groq_url, data=data, files=files, headers=headers)
+            response.raise_for_status()
+            payload_json: Any = response.json()
+        except Exception:
+            logger.exception("Failed to transcribe audio payload via Groq STT")
+            return None
+
+        text = payload_json.get("text") if isinstance(payload_json, dict) else None
         if not isinstance(text, str):
             return None
         text = text.strip()

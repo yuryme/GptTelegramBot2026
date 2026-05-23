@@ -80,7 +80,7 @@
 - Для локальной разработки поддержан отдельный тестовый Telegram-токен:
   - `TELEGRAM_BOT_TOKEN_TEST`
   - `TELEGRAM_USE_TEST_BOT=true` (в этом режиме бот использует тестовый токен).
-- Распознавание речи выбирается через `STT_PROVIDER`: `openai` использует `OPENAI_TRANSCRIPTION_MODEL`, `http` отправляет аудио в совместимый STT endpoint `STT_HTTP_URL`.
+- Распознавание речи выбирается через `STT_PROVIDER`: `openai` использует `OPENAI_TRANSCRIPTION_MODEL`, `http` отправляет аудио в совместимый STT endpoint `STT_HTTP_URL`, `groq` использует Groq Whisper API (`GROQ_STT_MODEL=whisper-large-v3-turbo`).
 - Для локального Whisper-STT есть сервер `scripts/local_stt_server.py`; production-контракт тот же: `POST /transcribe` с аудио в body возвращает JSON `{"text":"..."}`.
 - Для Windows + PostgreSQL в async-режиме используется драйвер `asyncpg` (автопереключение при `DATABASE_URL=postgresql+psycopg://...`), чтобы исключить конфликт `ProactorEventLoop` в планировщике.
 - В репозитории очищены временные локальные артефакты; каталоги рантайм-логов и локальные секреты исключены через `.gitignore`.
@@ -112,6 +112,15 @@ scripts\stt_local.bat start
 ```env
 STT_PROVIDER=http
 STT_HTTP_URL=http://127.0.0.1:18100/transcribe
+```
+
+Для Groq STT в `.env`:
+
+```env
+STT_PROVIDER=groq
+GROQ_STT_BASE_URL=https://api.groq.com/openai/v1
+GROQ_STT_MODEL=whisper-large-v3-turbo
+GROQ_STT_LANGUAGE=ru
 ```
 
 Проверка здоровья:
