@@ -64,7 +64,7 @@ def ensure_until_for_rrule(
         hinted = _compute_until_from_hint(start_local=start_local, end_hint=end_hint, end_expr=end_expr)
         if hinted is not None:
             parts["UNTIL"] = hinted.isoformat()
-            ordered_keys = ["FREQ", "INTERVAL", "UNTIL"]
+            ordered_keys = ["FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY", "UNTIL"]
             serialized = ";".join(f"{key}={parts[key]}" for key in ordered_keys if key in parts)
             try:
                 return serialized, RecurrenceEndIntent(end_hint)
@@ -98,7 +98,7 @@ def ensure_until_for_rrule(
             microsecond=0,
         )
     parts["UNTIL"] = until.isoformat()
-    ordered_keys = ["FREQ", "INTERVAL", "UNTIL"]
+    ordered_keys = ["FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY", "UNTIL"]
     serialized = ";".join(f"{key}={parts[key]}" for key in ordered_keys if key in parts)
     return serialized, intent
 

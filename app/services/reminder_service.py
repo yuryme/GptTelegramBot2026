@@ -18,6 +18,7 @@ from app.schemas.commands import (
     resolve_default_run_at,
 )
 from app.services.display_policy import pre_reminder_delta, should_schedule_pre_reminder
+from app.services.recurrence import expand_occurrences
 from app.services.recurring_end_policy import ensure_until_for_rrule
 
 
@@ -71,7 +72,6 @@ class ReminderService:
         for reminder in command.reminders:
             run_at = resolve_default_run_at(reminder, now)
             run_at_local = run_at.replace(tzinfo=local_tz) if run_at.tzinfo is None else run_at
-            run_at_utc = run_at_local.astimezone(timezone.utc)
             series_id: str | None = None
             recurrence_rule = reminder.recurrence_rule
             if reminder.recurrence_rule:
@@ -86,23 +86,26 @@ class ReminderService:
                     source_text=reminder.text,
                     recurrence_rule=recurrence_rule,
                 )
-            if should_schedule_pre_reminder(run_at_utc=run_at_utc, now_local=now, policy=None):
+            run_slots = expand_occurrences(run_at_local, recurrence_rule)
+            for slot_local in run_slots:
+                slot_utc = slot_local.astimezone(timezone.utc)
+                if should_schedule_pre_reminder(run_at_utc=slot_utc, now_local=now, policy=None):
+                    payload.append(
+                        {
+                            "chat_id": chat_id,
+                            "text": build_pre_reminder_text(reminder.text),
+                            "run_at": slot_utc - pre_reminder_delta(None),
+                            "recurrence_rule": None,
+                            "series_id": series_id,
+                        }
+                    )
+
                 payload.append(
                     {
                         "chat_id": chat_id,
-                        "text": build_pre_reminder_text(reminder.text),
-                        "run_at": run_at_utc - pre_reminder_delta(None),
-                        "recurrence_rule": None,
-                        "series_id": series_id,
-                    }
-                )
-
-            payload.append(
-                    {
-                        "chat_id": chat_id,
                         "text": reminder.text,
-                        "run_at": run_at_utc,
-                        "recurrence_rule": recurrence_rule,
+                        "run_at": slot_utc,
+                        "recurrence_rule": None,
                         "series_id": series_id,
                     }
                 )

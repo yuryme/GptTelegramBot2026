@@ -268,6 +268,9 @@
 - [x] Keep explicit user end constraints as higher-priority over defaults.
 - [x] Reject ambiguous end expressions in compiler to avoid silent incorrect schedule boundaries.
 - [x] Add regression tests for step-based phrases (`каждые 2 часа`, `каждые 2 недели`, `каждые 2 месяца`) and end-policy behavior.
+- [x] Materialize finite recurring series into concrete reminder rows at creation time.
+- [x] Preserve recurrence series metadata separately while storing materialized occurrences without per-row `recurrence_rule`.
+- [x] Add `BYDAY` / `BYMONTHDAY` parsing and occurrence expansion tests.
 
 ## Stage 27. VPS access hardening
 

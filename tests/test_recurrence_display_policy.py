@@ -70,6 +70,7 @@ def test_multi_weekday_recurrence_policy() -> None:
     )
     assert plan.recurrence.kind == RecurrenceKind.weekly
     assert plan.recurrence.weekdays == [1, 3]
+    assert "BYDAY=TU,TH" in (plan.recurrence.legacy_rule or "")
 
 
 def test_one_time_with_one_hour_pre_reminder() -> None:
@@ -108,3 +109,19 @@ def test_daily_until_end_date_policy() -> None:
     assert plan.recurrence.kind == RecurrenceKind.daily
     assert "UNTIL=2026-03-31T23:59:59" in (plan.recurrence.legacy_rule or "")
 
+
+def test_weekday_policy_encodes_business_days_in_rule() -> None:
+    plan = _compile_plan(
+        {
+            "reminder_text": "делать зарядку",
+            "day_expression": None,
+            "time_expression": "в 8",
+            "date_expression": None,
+            "recurrence_expression": "по будням",
+            "recurrence_until_expression": None,
+            "recurrence_interval": None,
+            "pre_reminder_expression": None,
+            "raw_context": "Напоминай по будням в 8 делать зарядку",
+        }
+    )
+    assert "BYDAY=MO,TU,WE,TH,FR" in (plan.recurrence.legacy_rule or "")

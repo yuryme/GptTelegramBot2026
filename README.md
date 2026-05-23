@@ -190,3 +190,5 @@ ssh root@5.255.125.171 "hostname"
 - Explicit user end still has priority (`until_date` / `until_datetime`).
 - Ambiguous end expressions (e.g. `до следующей недели`, `пока не ...`) are rejected at compile stage to avoid silent wrong `UNTIL`.
 - Interval extraction supports Russian forms with step (`каждые 2 часа`, `каждые 2 недели`, `каждые 2 месяца`).
+- Finite recurrence rules are materialized at creation time: each occurrence is stored as a regular reminder with `recurrence_rule=null`, while the original series metadata is stored separately.
+- Weekly rules support `BYDAY` (`MO,TU,...`) and monthly rules support `BYMONTHDAY`; pre-reminders are generated per materialized occurrence.
