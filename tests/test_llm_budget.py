@@ -25,8 +25,7 @@ class DummyClient:
 @pytest.mark.asyncio
 async def test_llm_service_blocks_when_budget_exceeded() -> None:
     guard = MonthlyCostGuard(monthly_usd_limit=0.0)
-    service = LLMService(client=DummyClient(), cost_guard=guard)
+    service = LLMService(client=DummyClient(), cost_guard=guard, provider="openai")
     now = datetime(2026, 2, 21, 12, 0, tzinfo=timezone.utc)
     with pytest.raises(LLMBudgetExceededError):
         await service.build_command("покажи все", now=now)
-

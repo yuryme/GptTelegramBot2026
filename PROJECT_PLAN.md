@@ -9,6 +9,7 @@
 - [x] Актуальные автотесты: `55 passed`.
 - [x] Фактический VPS-деплой выполнен (ручной, polling, без Docker).
 - [x] Управление VPS-сервисом переведено на SSH-key-only без хранения пароля в скрипте.
+- [x] Текстовая LLM-часть подготовлена к переключению на DeepSeek V4 (`deepseek-v4-flash`).
 - [ ] Ротация ранее скомпрометированных секретов должна быть завершена на стороне пользователя.
 
 ## Этап 1. Основа проекта (MVP foundation)
@@ -274,3 +275,20 @@
 - [x] Remove the plaintext VPS password from `scripts/bot_service.bat`.
 - [x] Update service management script to use SSH batch mode instead of password-based `plink`.
 - [ ] Rotate the previously exposed VPS root password outside the repository workflow.
+
+## Stage 28. DeepSeek V4 text LLM migration
+
+- [x] Add explicit `LLM_PROVIDER` configuration for text command understanding.
+- [x] Add DeepSeek V4 settings (`DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL=deepseek-v4-flash`).
+- [x] Route text LLM calls through DeepSeek OpenAI-compatible chat completions when enabled.
+- [x] Add STT provider switch (`openai` / HTTP-compatible endpoint) to decouple voice transcription from OpenAI.
+- [ ] Validate local Telegram bot behavior with DeepSeek before VPS rollout.
+
+## Stage 29. HTTP STT provider abstraction
+
+- [x] Add `STT_PROVIDER=http` support in `SpeechToTextService`.
+- [x] Define production-friendly STT HTTP contract: raw audio body -> JSON `text` response.
+- [x] Add local faster-whisper HTTP server for Windows development/testing.
+- [x] Add background process control script for local STT (`scripts/stt_local.bat`).
+- [x] Keep local bot and STT starts non-blocking via PID/log files under `run/`.
+- [ ] Decide production STT hosting target for low-memory VPS constraints.

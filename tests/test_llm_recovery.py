@@ -36,7 +36,7 @@ async def test_recovers_invalid_first_llm_output() -> None:
             '{"command":"list_reminders","mode":"range","from_dt":"2026-02-01T00:00:00+00:00","to_dt":"2026-02-28T23:59:59.999999+00:00"}',
         ]
     )
-    service = LLMService(client=client)
+    service = LLMService(client=client, provider="openai")
     command = await service.build_command(
         "Показать все напоминания в этом месяце",
         now=datetime(2026, 2, 22, 12, 0, tzinfo=timezone.utc),

@@ -1,7 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from datetime import date, datetime, time, timedelta
+
+from pydantic import ValidationError
 
 from app.schemas.commands import AssistantCommand, assistant_command_adapter
 from app.schemas.internal_policies import (
@@ -31,7 +33,28 @@ class SemanticDraftCompiler:
 
         if draft.passthrough_command is None:
             raise SemanticDraftCompilationError("passthrough_command is required for non-create intents")
-        return assistant_command_adapter.validate_python(draft.passthrough_command)
+        payload = self._normalize_passthrough_command(draft.passthrough_command)
+        try:
+            return assistant_command_adapter.validate_python(payload)
+        except ValidationError as exc:
+            raise SemanticDraftCompilationError("passthrough_command does not match final command schema") from exc
+
+    def _normalize_passthrough_command(self, payload: dict) -> dict:
+        normalized = dict(payload)
+        if "command" not in normalized:
+            action = str(normalized.pop("action", "")).strip().lower()
+            if action == "list":
+                normalized["command"] = "list_reminders"
+            elif action == "delete":
+                normalized["command"] = "delete_reminders"
+
+        if normalized.get("command") == "list_reminders":
+            status = normalized.get("status")
+            if normalized.get("mode") is None:
+                normalized["mode"] = "status" if status in {"pending", "done", "deleted"} else "all"
+            if status == "all":
+                normalized.pop("status", None)
+        return normalized
 
     def compile_create_plans(self, *, draft: SemanticCommandDraft) -> list[CompiledCreateReminderPlan]:
         if draft.intent != "create_reminders":
@@ -90,8 +113,9 @@ class SemanticDraftCompiler:
         return CompiledCreateReminderPlan(reminder_payload=result, recurrence=recurrence, display=display)
 
     def _compile_recurrence_policy(self, item: CreateReminderDraft) -> InternalRecurrencePolicy:
-        raw = (item.recurrence_expression or "").strip().lower()
-        interval = item.recurrence_interval or extract_interval_from_text(item.recurrence_expression) or 1
+        raw_source = item.recurrence_expression or item.raw_context or item.reminder_text
+        raw = (raw_source or "").strip().lower()
+        interval = item.recurrence_interval or extract_interval_from_text(raw_source) or 1
         weekdays: list[int] = []
         month_day: int | None = None
         kind = RecurrenceKind.one_time
@@ -99,7 +123,7 @@ class SemanticDraftCompiler:
 
         if raw:
             if raw.startswith("freq="):
-                legacy_rule = item.recurrence_expression.strip()
+                legacy_rule = raw_source.strip()
                 return self._build_policy_from_rrule(legacy_rule)
 
             if any(token in raw for token in ("каждый день", "ежеднев", "every day")):
@@ -147,6 +171,8 @@ class SemanticDraftCompiler:
             until=until_dt,
             end_intent=end_intent,
             end_expression=item.recurrence_until_expression,
+            weekdays=weekdays,
+            month_day=month_day,
         )
 
         return InternalRecurrencePolicy(
@@ -197,6 +223,19 @@ class SemanticDraftCompiler:
         freq = parts.get("FREQ", "").upper()
         interval = max(1, int(parts.get("INTERVAL", "1") or "1"))
         until = self._parse_recurrence_until(parts.get("UNTIL"))
+        weekdays = []
+        byday_raw = parts.get("BYDAY", "")
+        byday_mapping = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+        for token in byday_raw.split(","):
+            day = byday_mapping.get(token.strip().upper())
+            if day is not None:
+                weekdays.append(day)
+        month_day = None
+        try:
+            if parts.get("BYMONTHDAY"):
+                month_day = int(parts["BYMONTHDAY"])
+        except ValueError:
+            month_day = None
 
         kind = RecurrenceKind.one_time
         if freq == "DAILY":
@@ -211,6 +250,8 @@ class SemanticDraftCompiler:
         return InternalRecurrencePolicy(
             kind=kind,
             interval=interval,
+            weekdays=weekdays,
+            month_day=month_day,
             end_kind=RecurrenceEndKind.until_datetime if until else RecurrenceEndKind.never,
             end_intent=RecurrenceEndIntent.until_datetime if until else None,
             until=until,
@@ -225,6 +266,8 @@ class SemanticDraftCompiler:
         until: datetime | None,
         end_intent: RecurrenceEndIntent | None,
         end_expression: str | None,
+        weekdays: list[int],
+        month_day: int | None,
     ) -> str:
         freq = {
             RecurrenceKind.hourly: "HOURLY",
@@ -238,6 +281,10 @@ class SemanticDraftCompiler:
         tokens = [f"FREQ={freq}"]
         if interval > 1:
             tokens.append(f"INTERVAL={interval}")
+        if kind == RecurrenceKind.weekly and weekdays:
+            tokens.append(f"BYDAY={self._encode_byday(weekdays)}")
+        if kind == RecurrenceKind.monthly and month_day is not None:
+            tokens.append(f"BYMONTHDAY={month_day}")
         if until is not None:
             tokens.append(f"UNTIL={until.isoformat()}")
         elif end_intent in (RecurrenceEndIntent.until_period_end, RecurrenceEndIntent.until_duration_from_start):
@@ -263,6 +310,18 @@ class SemanticDraftCompiler:
             pass
 
         return None
+
+    def _encode_byday(self, weekdays: list[int]) -> str:
+        mapping = {
+            0: "MO",
+            1: "TU",
+            2: "WE",
+            3: "TH",
+            4: "FR",
+            5: "SA",
+            6: "SU",
+        }
+        return ",".join(mapping[day] for day in weekdays if day in mapping)
 
     def _extract_weekdays(self, text: str) -> list[int]:
         values: list[int] = []

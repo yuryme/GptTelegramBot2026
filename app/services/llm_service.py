@@ -5,7 +5,7 @@ import logging
 import re
 from asyncio import sleep
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -47,15 +47,20 @@ class LLMService:
         client: AsyncOpenAI | None = None,
         cost_guard: MonthlyCostGuard | None = None,
         circuit_breaker: LLMCircuitBreaker | None = None,
+        provider: Literal["openai", "deepseek"] | None = None,
     ) -> None:
         settings = get_settings()
-        self._model = settings.openai_model
-        self._api_key = settings.openai_api_key
-        self._client = client or AsyncOpenAI(
-            api_key=settings.openai_api_key,
-            max_retries=0,
-            http_client=httpx.AsyncClient(trust_env=False, timeout=30.0),
-        )
+        self._provider = provider or settings.llm_provider
+        self._model = settings.deepseek_model if self._provider == "deepseek" else settings.openai_model
+        self._api_key = settings.deepseek_api_key if self._provider == "deepseek" else settings.openai_api_key
+        client_kwargs: dict[str, Any] = {
+            "api_key": self._api_key or "replace_me",
+            "max_retries": 0,
+            "http_client": httpx.AsyncClient(trust_env=False, timeout=30.0),
+        }
+        if self._provider == "deepseek":
+            client_kwargs["base_url"] = settings.deepseek_base_url
+        self._client = client or AsyncOpenAI(**client_kwargs)
         self._cost_guard = cost_guard or MonthlyCostGuard(
             monthly_usd_limit=settings.openai_monthly_budget_usd,
             estimated_input_cost_per_1k=settings.openai_estimated_input_cost_per_1k,
@@ -104,7 +109,7 @@ class LLMService:
         try:
             result = await self._client.models.list()
         except Exception:
-            logger.exception("Failed to fetch available OpenAI models")
+            logger.exception("Failed to fetch available %s models", self._provider)
             return [self._model]
 
         model_ids = sorted(
@@ -112,7 +117,7 @@ class LLMService:
                 item.id
                 for item in getattr(result, "data", [])
                 if isinstance(getattr(item, "id", None), str)
-                and (item.id.startswith("gpt-") or item.id.startswith("o"))
+                and self._is_supported_model_id(item.id)
             }
         )
         if not model_ids:
@@ -144,6 +149,8 @@ class LLMService:
         return None
 
     async def get_account_limit_snapshot(self) -> dict[str, float] | None:
+        if self._provider != "openai":
+            return None
         if not self._api_key:
             return None
         headers = {
@@ -226,18 +233,16 @@ class LLMService:
         response = None
         for attempt in range(2):
             try:
-                response = await self._client.responses.create(
-                    model=self._model,
-                    input=[
+                response = await self._request_text(
+                    messages=[
                         {"role": "system", "content": SEMANTIC_DRAFT_PROMPT_RU},
                         {"role": "user", "content": user_prompt},
                     ],
-                    temperature=0,
                 )
                 break
             except RateLimitError as exc:
                 self._circuit_breaker.register_failure(now)
-                raise LLMRateLimitError("OpenAI rate limit or quota exceeded") from exc
+                raise LLMRateLimitError(f"{self._provider} rate limit or quota exceeded") from exc
             except (APIConnectionError, APITimeoutError):
                 if attempt == 1:
                     raise
@@ -245,9 +250,7 @@ class LLMService:
 
         assert response is not None
         self._circuit_breaker.register_success()
-        usage = getattr(response, "usage", None)
-        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        raw_output, input_tokens, output_tokens = response
         snapshot = self._cost_guard.register_tokens(input_tokens, output_tokens, now=now)
         logger.info(
             "LLM usage tracked: month=%s total_tokens=%s total_usd=%.6f",
@@ -258,9 +261,31 @@ class LLMService:
         for threshold in self._cost_guard.get_new_alert_thresholds(now):
             logger.warning("LLM budget threshold reached: %s%%", threshold)
 
-        raw_output = (response.output_text or "").strip()
         logger.info("LLM raw output: %s", raw_output)
         return raw_output
+
+    async def _request_text(self, *, messages: list[dict[str, str]]) -> tuple[str, int, int]:
+        if self._provider == "deepseek":
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                temperature=0,
+            )
+            content = response.choices[0].message.content or ""
+            usage = getattr(response, "usage", None)
+            input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+            output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+            return content.strip(), input_tokens, output_tokens
+
+        response = await self._client.responses.create(
+            model=self._model,
+            input=messages,
+            temperature=0,
+        )
+        usage = getattr(response, "usage", None)
+        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        return (response.output_text or "").strip(), input_tokens, output_tokens
 
 
     async def _recover_command_json_with_llm(
@@ -282,19 +307,16 @@ class LLMService:
             f"Invalid model output to fix: {raw_output}"
         )
         try:
-            response = await self._client.responses.create(
-                model=self._model,
-                input=[
+            fixed_output, _, _ = await self._request_text(
+                messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0,
             )
         except Exception:
             logger.exception("Failed to recover invalid command JSON with LLM")
             return None
 
-        fixed_output = (response.output_text or "").strip()
         logger.info("LLM recovered raw output: %s", fixed_output)
         try:
             draft = parse_semantic_command_draft(fixed_output)
@@ -305,6 +327,11 @@ class LLMService:
             except LLMCommandValidationError:
                 logger.warning("Recovered output is still invalid: %s", fixed_output)
                 return None
+
+    def _is_supported_model_id(self, model_id: str) -> bool:
+        if self._provider == "deepseek":
+            return model_id.startswith("deepseek-")
+        return model_id.startswith("gpt-") or model_id.startswith("o")
 
 
 

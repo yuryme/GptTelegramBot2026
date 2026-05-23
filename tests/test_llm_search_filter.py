@@ -38,7 +38,7 @@ async def test_list_query_without_refinement_keeps_primary_result_for_search_cas
             '{"search_text":"молок"}',
         ]
     )
-    service = LLMService(client=client)
+    service = LLMService(client=client, provider="openai")
     command = await service.build_command(
         "Показать все напоминания где упоминается молоко",
         now=datetime(2026, 2, 22, 12, 0, tzinfo=timezone.utc),
@@ -56,7 +56,7 @@ async def test_list_query_without_refinement_keeps_primary_result_for_range_case
             '{"command":"list_reminders","mode":"range","from_dt":"2026-02-24T00:00:00+00:00","to_dt":"2026-02-26T23:59:59.999999+00:00"}',
         ]
     )
-    service = LLMService(client=client)
+    service = LLMService(client=client, provider="openai")
     command = await service.build_command(
         "Показать все напоминания в диапазоне 24-26 февраля",
         now=datetime(2026, 2, 22, 12, 0, tzinfo=timezone.utc),
@@ -75,7 +75,7 @@ async def test_list_query_with_existing_filter_is_not_refined() -> None:
             '{"search_text":"клиент"}',
         ]
     )
-    service = LLMService(client=client)
+    service = LLMService(client=client, provider="openai")
     command = await service.build_command(
         "Покажи где упоминается клиент",
         now=datetime(2026, 2, 22, 12, 0, tzinfo=timezone.utc),

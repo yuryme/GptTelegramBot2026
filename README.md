@@ -57,6 +57,7 @@
 - `Schema-first`: LLM отдает JSON, который валидируется Pydantic-схемами.
 - `Temporal normalization`: смысловая нормализация даты/времени выполняется отдельным слоем после валидации схемы и до бизнес-исполнения.
 - `Semantic draft layer`: for create flows, LLM returns semantic draft JSON first, then deterministic Python compiles draft -> final executable command JSON.
+- Текстовая LLM-часть выбирается через `LLM_PROVIDER`; для DeepSeek V4 используется `LLM_PROVIDER=deepseek` и `DEEPSEEK_MODEL=deepseek-v4-flash`.
 - `Internal recurrence policy layer`: semantic draft compiler now builds explicit internal recurrence model (kind/interval/end) before mapping to legacy `recurrence_rule`.
 - `Internal display policy layer`: pre-reminder behavior is represented by an internal display policy model (auto/disabled/minutes_before) without expanding public command JSON.
 - Изменения интерпретации фраз делаются через prompt/схемы, а не через разрастание if/else-логики.
@@ -75,11 +76,12 @@
 - Локализация статусов в списке:
   - `pending` -> `в ожидании`
   - `done` -> `выполнено`
-- Выбор модели через кнопку `Модели` действует в рамках текущего запущенного процесса (после рестарта возвращается значение из `OPENAI_MODEL`).
+- Выбор модели через кнопку `Модели` действует в рамках текущего запущенного процесса (после рестарта возвращается значение из `OPENAI_MODEL` или `DEEPSEEK_MODEL` в зависимости от `LLM_PROVIDER`).
 - Для локальной разработки поддержан отдельный тестовый Telegram-токен:
   - `TELEGRAM_BOT_TOKEN_TEST`
   - `TELEGRAM_USE_TEST_BOT=true` (в этом режиме бот использует тестовый токен).
-- Модель распознавания речи задается через `OPENAI_TRANSCRIPTION_MODEL` (по умолчанию `gpt-4o-mini-transcribe`).
+- Распознавание речи выбирается через `STT_PROVIDER`: `openai` использует `OPENAI_TRANSCRIPTION_MODEL`, `http` отправляет аудио в совместимый STT endpoint `STT_HTTP_URL`.
+- Для локального Whisper-STT есть сервер `scripts/local_stt_server.py`; production-контракт тот же: `POST /transcribe` с аудио в body возвращает JSON `{"text":"..."}`.
 - Для Windows + PostgreSQL в async-режиме используется драйвер `asyncpg` (автопереключение при `DATABASE_URL=postgresql+psycopg://...`), чтобы исключить конфликт `ProactorEventLoop` в планировщике.
 - В репозитории очищены временные локальные артефакты; каталоги рантайм-логов и локальные секреты исключены через `.gitignore`.
 
@@ -94,6 +96,22 @@ docker compose up -d --build
 ```env
 TELEGRAM_DELIVERY_MODE=webhook  # или polling
 TELEGRAM_POLLING_DROP_PENDING_UPDATES=true
+```
+
+Локальный HTTP STT для голосовых сообщений запускается отдельным долгоживущим процессом, например через Python 3.11 с установленным `faster_whisper`:
+
+```powershell
+scripts\stt_local.bat start
+```
+
+Управление долгоживущими локальными процессами выполняется только через фоновые скрипты `scripts\bot_local.bat` и `scripts\stt_local.bat`; они пишут PID и логи в `run/` и не блокируют текущую консоль.
+После `start` готовность проверяется bounded-командами `status` и `health`, а не ожиданием завершения процесса.
+
+Для использования этого STT backend в `.env`:
+
+```env
+STT_PROVIDER=http
+STT_HTTP_URL=http://127.0.0.1:18100/transcribe
 ```
 
 Проверка здоровья:
