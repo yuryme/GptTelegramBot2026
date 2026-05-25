@@ -25,7 +25,7 @@ def parse_recurrence_rule(recurrence_rule: str | None, *, reference: datetime) -
         parts[key.strip().upper()] = value.strip()
 
     freq = (parts.get("FREQ") or "").upper()
-    if freq not in {"HOURLY", "DAILY", "WEEKLY", "MONTHLY"}:
+    if freq not in {"MINUTELY", "HOURLY", "DAILY", "WEEKLY", "MONTHLY"}:
         return None
 
     try:
@@ -44,7 +44,9 @@ def compute_next_run_at(current_run_at: datetime, recurrence_rule: str | None) -
     if parsed is None:
         return None
 
-    if parsed.freq == "DAILY":
+    if parsed.freq == "MINUTELY":
+        candidate = current_run_at + timedelta(minutes=parsed.interval)
+    elif parsed.freq == "DAILY":
         candidate = current_run_at + timedelta(days=parsed.interval)
     elif parsed.freq == "HOURLY":
         candidate = current_run_at + timedelta(hours=parsed.interval)
@@ -66,6 +68,8 @@ def expand_occurrences(start_run_at: datetime, recurrence_rule: str | None) -> l
     if parsed.until is None:
         return [start_run_at]
 
+    if parsed.freq == "MINUTELY":
+        return _expand_minutely(start_run_at, parsed)
     if parsed.freq == "HOURLY":
         return _expand_hourly(start_run_at, parsed)
     if parsed.freq == "DAILY":
@@ -73,6 +77,15 @@ def expand_occurrences(start_run_at: datetime, recurrence_rule: str | None) -> l
     if parsed.freq == "WEEKLY":
         return _expand_weekly(start_run_at, parsed)
     return _expand_monthly(start_run_at, parsed)
+
+
+def _expand_minutely(start_run_at: datetime, parsed: RecurrenceRule) -> list[datetime]:
+    current = start_run_at
+    items: list[datetime] = []
+    while current <= (parsed.until or start_run_at):
+        items.append(current)
+        current = current + timedelta(minutes=parsed.interval)
+    return items
 
 
 def _expand_hourly(start_run_at: datetime, parsed: RecurrenceRule) -> list[datetime]:

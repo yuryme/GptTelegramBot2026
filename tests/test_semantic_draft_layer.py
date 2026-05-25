@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timezone
+﻿from datetime import date, datetime, timezone
 
 import pytest
 
@@ -166,3 +166,91 @@ def test_wrapper_marker_cleanup_for_reminder_text(reminder_text: str, raw_contex
     compiler = SemanticDraftCompiler()
     command = compiler.compile_to_command(draft=draft)
     assert command.reminders[0].text == expected
+
+
+def test_semantic_draft_compiler_normalizes_russian_date_expression() -> None:
+    payload = {
+        "intent": "create_reminders",
+        "create_items": [
+            {
+                "reminder_text": "Оплата Доп каско",
+                "day_expression": None,
+                "time_expression": "10-00",
+                "date_expression": "25 мая 2026",
+                "recurrence_expression": None,
+                "raw_context": "добавить напоминание на 25 мая 2026 в 10-00 Оплата Доп каско",
+            }
+        ],
+        "passthrough_command": None,
+    }
+    draft = parse_semantic_command_draft(payload)
+    command = SemanticDraftCompiler().compile_to_command(
+        draft=draft,
+        now=datetime(2026, 5, 24, 10, 54, tzinfo=timezone.utc),
+    )
+
+    reminder = command.reminders[0]
+    assert reminder.text == "Оплата Доп каско"
+    assert reminder.day_reference == DayReference.specific_date
+    assert reminder.date_value == date(2026, 5, 25)
+    assert reminder.time_value == "10:00"
+
+
+def test_semantic_draft_compiler_uses_whole_tomorrow_for_hourly_day_period() -> None:
+    payload = {
+        "intent": "create_reminders",
+        "create_items": [
+            {
+                "reminder_text": "проверить воду",
+                "day_expression": "завтра",
+                "time_expression": None,
+                "date_expression": None,
+                "period_start_expression": "начало завтрашнего дня",
+                "period_end_expression": "конец завтрашнего дня",
+                "recurrence_expression": "каждый час",
+                "recurrence_until_expression": "в течение завтрашнего дня",
+                "recurrence_interval": None,
+                "raw_context": "создай напоминание каждый час в течение завтрашнего дня проверить воду",
+            }
+        ],
+        "passthrough_command": None,
+    }
+    draft = parse_semantic_command_draft(payload)
+    command = SemanticDraftCompiler().compile_to_command(
+        draft=draft,
+        now=datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc),
+    )
+
+    reminder = command.reminders[0]
+    assert reminder.day_reference == DayReference.specific_date
+    assert reminder.date_value == date(2026, 5, 25)
+    assert reminder.time_value == "00:00"
+    assert reminder.explicit_time_provided is True
+    assert reminder.recurrence_rule == "FREQ=HOURLY;UNTIL=2026-05-25T23:59:59"
+
+
+def test_semantic_draft_compiler_accepts_relative_date_expression_without_period() -> None:
+    payload = {
+        "intent": "create_reminders",
+        "create_items": [
+            {
+                "reminder_text": "обычное напоминание",
+                "day_expression": None,
+                "time_expression": None,
+                "date_expression": "завтра",
+                "recurrence_expression": None,
+                "raw_context": "напомни завтра обычное напоминание",
+            }
+        ],
+        "passthrough_command": None,
+    }
+    draft = parse_semantic_command_draft(payload)
+    command = SemanticDraftCompiler().compile_to_command(
+        draft=draft,
+        now=datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc),
+    )
+
+    reminder = command.reminders[0]
+    assert reminder.day_reference == DayReference.specific_date
+    assert reminder.date_value == date(2026, 5, 25)
+    assert reminder.explicit_time_provided is False

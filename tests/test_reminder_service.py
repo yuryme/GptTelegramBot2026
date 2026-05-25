@@ -111,7 +111,130 @@ async def test_create_keeps_explicit_recurrence_until() -> None:
     assert created[0].run_at == datetime(2026, 2, 23, 9, 0, tzinfo=timezone.utc)
     assert created[-1].run_at == datetime(2026, 2, 23, 15, 0, tzinfo=timezone.utc)
     assert len(repo.created_series) == 1
-    assert len(repo.saved_payload) == 14
+    assert len(repo.saved_payload) == 7
+
+
+async def test_create_hourly_for_whole_day_generates_24_visible_reminders_without_pre_reminders() -> None:
+    repo = FakeRepository()
+    service = ReminderService(repo)
+    cmd = CreateRemindersCommand.model_validate(
+        {
+            "command": "create_reminders",
+            "reminders": [
+                {
+                    "text": "Проверить воду",
+                    "date_value": "2026-05-25",
+                    "time": "00:00",
+                    "day_reference": "specific_date",
+                    "recurrence_rule": "FREQ=HOURLY;UNTIL=2026-05-25T23:59:59+00:00",
+                    "explicit_time_provided": True,
+                }
+            ],
+        }
+    )
+    created = await service.create_from_command(
+        chat_id=123,
+        command=cmd,
+        now=datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(created) == 24
+    assert len(repo.saved_payload) == 24
+    assert created[0].run_at == datetime(2026, 5, 25, 0, 0, tzinfo=timezone.utc)
+    assert created[-1].run_at == datetime(2026, 5, 25, 23, 0, tzinfo=timezone.utc)
+
+
+async def test_create_every_two_hours_for_whole_day_generates_12_visible_reminders() -> None:
+    repo = FakeRepository()
+    service = ReminderService(repo)
+    cmd = CreateRemindersCommand.model_validate(
+        {
+            "command": "create_reminders",
+            "reminders": [
+                {
+                    "text": "Проверить воду",
+                    "date_value": "2026-05-25",
+                    "time": "00:00",
+                    "day_reference": "specific_date",
+                    "recurrence_rule": "FREQ=HOURLY;INTERVAL=2;UNTIL=2026-05-25T23:59:59+00:00",
+                    "explicit_time_provided": True,
+                }
+            ],
+        }
+    )
+    created = await service.create_from_command(
+        chat_id=123,
+        command=cmd,
+        now=datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(created) == 12
+    assert created[0].run_at == datetime(2026, 5, 25, 0, 0, tzinfo=timezone.utc)
+    assert created[-1].run_at == datetime(2026, 5, 25, 22, 0, tzinfo=timezone.utc)
+
+
+async def test_create_every_30_minutes_in_time_range_generates_inclusive_schedule() -> None:
+    repo = FakeRepository()
+    service = ReminderService(repo)
+    cmd = CreateRemindersCommand.model_validate(
+        {
+            "command": "create_reminders",
+            "reminders": [
+                {
+                    "text": "Проверить воду",
+                    "date_value": "2026-05-25",
+                    "time": "10:00",
+                    "day_reference": "specific_date",
+                    "recurrence_rule": "FREQ=MINUTELY;INTERVAL=30;UNTIL=2026-05-25T12:00:00+00:00",
+                    "explicit_time_provided": True,
+                }
+            ],
+        }
+    )
+    created = await service.create_from_command(
+        chat_id=123,
+        command=cmd,
+        now=datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert [item.run_at for item in created] == [
+        datetime(2026, 5, 25, 10, 0, tzinfo=timezone.utc),
+        datetime(2026, 5, 25, 10, 30, tzinfo=timezone.utc),
+        datetime(2026, 5, 25, 11, 0, tzinfo=timezone.utc),
+        datetime(2026, 5, 25, 11, 30, tzinfo=timezone.utc),
+        datetime(2026, 5, 25, 12, 0, tzinfo=timezone.utc),
+    ]
+
+
+async def test_create_recurring_time_range_skips_past_slots() -> None:
+    repo = FakeRepository()
+    service = ReminderService(repo)
+    cmd = CreateRemindersCommand.model_validate(
+        {
+            "command": "create_reminders",
+            "reminders": [
+                {
+                    "text": "Периодический тест",
+                    "date_value": "2026-05-24",
+                    "time": "16:00",
+                    "day_reference": "specific_date",
+                    "recurrence_rule": "FREQ=MINUTELY;INTERVAL=15;UNTIL=2026-05-24T17:00:00+00:00",
+                    "explicit_time_provided": True,
+                }
+            ],
+        }
+    )
+    created = await service.create_from_command(
+        chat_id=123,
+        command=cmd,
+        now=datetime(2026, 5, 24, 16, 23, tzinfo=timezone.utc),
+    )
+
+    assert [item.run_at for item in created] == [
+        datetime(2026, 5, 24, 16, 30, tzinfo=timezone.utc),
+        datetime(2026, 5, 24, 16, 45, tzinfo=timezone.utc),
+        datetime(2026, 5, 24, 17, 0, tzinfo=timezone.utc),
+    ]
 
 
 async def test_create_today_single_notification_only() -> None:

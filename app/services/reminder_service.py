@@ -88,8 +88,14 @@ class ReminderService:
                 )
             run_slots = expand_occurrences(run_at_local, recurrence_rule)
             for slot_local in run_slots:
+                if recurrence_rule and slot_local < now:
+                    continue
                 slot_utc = slot_local.astimezone(timezone.utc)
-                if should_schedule_pre_reminder(run_at_utc=slot_utc, now_local=now, policy=None):
+                if _should_schedule_pre_reminder_for_rule(
+                    run_at_utc=slot_utc,
+                    now_local=now,
+                    recurrence_rule=recurrence_rule,
+                ):
                     payload.append(
                         {
                             "chat_id": chat_id,
@@ -230,3 +236,16 @@ class ReminderService:
         if command.status == "deleted":
             selection.include_deleted = True
         return selection
+
+
+def _should_schedule_pre_reminder_for_rule(
+    *,
+    run_at_utc: datetime,
+    now_local: datetime,
+    recurrence_rule: str | None,
+) -> bool:
+    if recurrence_rule:
+        upper = recurrence_rule.upper()
+        if "FREQ=HOURLY" in upper or "FREQ=MINUTELY" in upper:
+            return False
+    return should_schedule_pre_reminder(run_at_utc=run_at_utc, now_local=now_local, policy=None)

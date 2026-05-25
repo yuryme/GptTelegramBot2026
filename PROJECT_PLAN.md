@@ -6,7 +6,7 @@
 - [x] Выбран подход: поэтапная разработка от простого к сложному.
 - [x] Согласован финальный деплой на арендованный VPS.
 - [x] Локальная разработка и проверка: работает стабильно.
-- [x] Актуальные автотесты: `55 passed`.
+- [x] Актуальные автотесты: `105 passed`.
 - [x] Фактический VPS-деплой выполнен (ручной, polling, без Docker).
 - [x] Управление VPS-сервисом переведено на SSH-key-only без хранения пароля в скрипте.
 - [x] Текстовая LLM-часть подготовлена к переключению на DeepSeek V4 (`deepseek-v4-flash`).
@@ -285,7 +285,7 @@
 - [x] Add DeepSeek V4 settings (`DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL=deepseek-v4-flash`).
 - [x] Route text LLM calls through DeepSeek OpenAI-compatible chat completions when enabled.
 - [x] Add STT provider switch (`openai` / HTTP-compatible endpoint) to decouple voice transcription from OpenAI.
-- [ ] Validate local Telegram bot behavior with DeepSeek before VPS rollout.
+- [x] Validate local Telegram bot behavior with DeepSeek before VPS rollout.
 
 ## Stage 29. HTTP STT provider abstraction
 
@@ -296,3 +296,55 @@
 - [x] Add background process control script for local STT (`scripts/stt_local.bat`).
 - [x] Keep local bot and STT starts non-blocking via PID/log files under `run/`.
 - [x] Select Groq STT as low-memory production transcription target for small voice volume.
+
+## Stage 30. LLM production timeout hardening
+
+- [x] Diagnose VPS non-responsiveness as DeepSeek request timeouts, not a systemd process crash.
+- [x] Add configurable LLM timeout (`LLM_TIMEOUT_SECONDS`) and attempt count (`LLM_MAX_ATTEMPTS`).
+- [x] Change defaults to fail fast (`20s`, `1` attempt) instead of blocking Telegram updates for about 60 seconds.
+- [x] Register final network timeout/connection failures in the LLM circuit breaker.
+- [x] Add regression coverage for configured LLM attempt count.
+- [ ] Rotate the exposed DeepSeek API key and update the VPS `.env`.
+- [ ] Deploy the timeout hardening commit to VPS and run smoke checks.
+
+## Stage 33. LLM-only list/delete contract stabilization
+
+- [x] Reject Python fast-path parsing for user phrases; keep meaning extraction in LLM.
+- [x] Strengthen semantic prompt for list/delete passthrough JSON with explicit range examples.
+- [x] Add examples for `сегодня после 21 часа` and `сегодня до 21 часа` delete/list ranges.
+- [x] Keep Python role limited to JSON validation, field normalization, recurrence expansion, and command execution.
+- [x] Increase default `LLM_TIMEOUT_SECONDS` to `20.0` while preserving `LLM_MAX_ATTEMPTS=1`.
+- [x] Add prompt contract tests for list/delete range behavior.
+- [ ] Deploy prompt/timeout stabilization to VPS and run smoke checks.
+
+## Stage 34. Prompt architecture audit and consolidation
+
+- [x] Audit bot prompts against LLM-only extraction architecture.
+- [x] Mark `SYSTEM_PROMPT_RU` as legacy final-command prompt.
+- [x] Refactor active `SEMANTIC_DRAFT_PROMPT_RU` around logical rules plus compact few-shot examples.
+- [x] Add explicit date range semantics for `после <date>`, `с <date>`, `до <date>`, and `включительно`.
+- [x] Add search-vs-date disambiguation rules.
+- [x] Add recurrence extraction rules for intervals, bounded periods, weekdays, and ambiguous ends.
+- [x] Update prompt contract tests.
+- [ ] Deploy consolidated prompt to VPS and run smoke checks.
+
+## Stage 31. Russian semantic date expression hotfix
+
+- [x] Diagnose create-reminder failure as compiler validation error for `date_expression="25 мая 2026"`.
+- [x] Normalize Russian date expressions in `SemanticDraftCompiler` before final command validation.
+- [x] Pass current `now` from `LLMService` into semantic draft compilation for year inference when year is omitted.
+- [x] Add regression coverage for `25 мая 2026` with time `10-00`.
+- [ ] Deploy the hotfix to VPS and verify the same Telegram scenario.
+
+## Stage 32. Bounded recurring period materialization
+
+- [x] Preserve existing one-time default behavior: `завтра` without explicit time resolves to `08:00`.
+- [x] Add semantic period fields for recurring commands (`period_start_expression`, `period_end_expression`).
+- [x] Interpret whole-day recurring phrases such as `каждый час в течение завтрашнего дня` as `00:00..23:59:59` of that day.
+- [x] Add `MINUTELY` recurrence support for intervals such as `каждые 30 минут`.
+- [x] Materialize hourly full-day period into 24 visible reminders and every-2-hours full-day period into 12 visible reminders.
+- [x] Materialize inclusive minute ranges, e.g. every 30 minutes from 10:00 to 12:00 -> 5 reminders.
+- [x] Parse Russian hour-word ranges such as `с 16 часов до 17 часов`.
+- [x] Skip already-past slots when creating bounded recurring schedules for today.
+- [x] Disable automatic 1-hour pre-reminders for hourly/minutely recurring schedules to avoid duplicate notification streams.
+- [ ] Deploy recurring period materialization to VPS and run Telegram smoke tests.

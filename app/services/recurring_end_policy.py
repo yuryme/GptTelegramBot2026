@@ -11,7 +11,7 @@ def extract_interval_from_text(text: str | None) -> int | None:
     if not text:
         return None
     lower = text.lower()
-    match = re.search(r"кажды(?:й|е|ую)\s+(\d+)\s*(час|часа|часов|дн|недел|месяц)", lower)
+    match = re.search(r"кажды(?:й|е|ую)\s+(\d+)\s*(минут|час|часа|часов|дн|недел|месяц)", lower)
     if not match:
         return None
     try:
@@ -52,7 +52,7 @@ def ensure_until_for_rrule(
         key, value = token.split("=", 1)
         parts[key.strip().upper()] = value.strip()
     freq = (parts.get("FREQ") or "").upper()
-    if freq not in {"HOURLY", "DAILY", "WEEKLY", "MONTHLY"}:
+    if freq not in {"MINUTELY", "HOURLY", "DAILY", "WEEKLY", "MONTHLY"}:
         return recurrence_rule, RecurrenceEndIntent.until_datetime
 
     if parts.get("UNTIL"):
@@ -71,7 +71,7 @@ def ensure_until_for_rrule(
             except ValueError:
                 return serialized, RecurrenceEndIntent.until_datetime
 
-    if freq == "HOURLY":
+    if freq in {"MINUTELY", "HOURLY"}:
         until = start_local.replace(hour=23, minute=59, second=59, microsecond=0)
         intent = RecurrenceEndIntent.default_until_same_day
     elif freq == "DAILY":
@@ -87,7 +87,7 @@ def ensure_until_for_rrule(
         until = start_local.replace(month=12, day=31)
         intent = RecurrenceEndIntent.default_until_end_of_year
 
-    if freq == "HOURLY":
+    if freq in {"MINUTELY", "HOURLY"}:
         until = until.replace(tzinfo=start_local.tzinfo)
     else:
         until = until.replace(

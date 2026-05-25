@@ -53,10 +53,11 @@ class LLMService:
         self._provider = provider or settings.llm_provider
         self._model = settings.deepseek_model if self._provider == "deepseek" else settings.openai_model
         self._api_key = settings.deepseek_api_key if self._provider == "deepseek" else settings.openai_api_key
+        self._llm_max_attempts = settings.llm_max_attempts
         client_kwargs: dict[str, Any] = {
             "api_key": self._api_key or "replace_me",
             "max_retries": 0,
-            "http_client": httpx.AsyncClient(trust_env=False, timeout=30.0),
+            "http_client": httpx.AsyncClient(trust_env=False, timeout=settings.llm_timeout_seconds),
         }
         if self._provider == "deepseek":
             client_kwargs["base_url"] = settings.deepseek_base_url
@@ -201,7 +202,7 @@ class LLMService:
         raw_output = await self._request_primary_command(user_text=user_text, now=now)
         try:
             draft = parse_semantic_command_draft(raw_output)
-            command = self._semantic_compiler.compile_to_command(draft=draft)
+            command = self._semantic_compiler.compile_to_command(draft=draft, now=now)
         except LLMCommandValidationError:
             # Backward compatibility: accept legacy final command JSON from model.
             try:
@@ -231,7 +232,7 @@ class LLMService:
             "No markdown, no comments, no extra text."
         )
         response = None
-        for attempt in range(2):
+        for attempt in range(self._llm_max_attempts):
             try:
                 response = await self._request_text(
                     messages=[
@@ -244,7 +245,8 @@ class LLMService:
                 self._circuit_breaker.register_failure(now)
                 raise LLMRateLimitError(f"{self._provider} rate limit or quota exceeded") from exc
             except (APIConnectionError, APITimeoutError):
-                if attempt == 1:
+                if attempt >= self._llm_max_attempts - 1:
+                    self._circuit_breaker.register_failure(now)
                     raise
                 await sleep(0.5 * (attempt + 1))
 
@@ -320,7 +322,7 @@ class LLMService:
         logger.info("LLM recovered raw output: %s", fixed_output)
         try:
             draft = parse_semantic_command_draft(fixed_output)
-            return self._semantic_compiler.compile_to_command(draft=draft)
+            return self._semantic_compiler.compile_to_command(draft=draft, now=now)
         except (LLMCommandValidationError, SemanticDraftCompilationError):
             try:
                 return parse_assistant_command(fixed_output)

@@ -11,7 +11,10 @@ from app.services.semantic_draft_compiler import SemanticDraftCompilationError, 
 def _compile_rule(item: dict) -> str | None:
     payload = {"intent": "create_reminders", "create_items": [item], "passthrough_command": None}
     draft = parse_semantic_command_draft(payload)
-    cmd = SemanticDraftCompiler().compile_to_command(draft=draft)
+    cmd = SemanticDraftCompiler().compile_to_command(
+        draft=draft,
+        now=datetime(2026, 5, 24, 12, 0, tzinfo=ZoneInfo("Europe/Moscow")),
+    )
     return cmd.reminders[0].recurrence_rule
 
 
@@ -105,6 +108,44 @@ def test_interval_extraction_for_every_2_hours() -> None:
     )
     assert "FREQ=HOURLY" in (rule or "")
     assert "INTERVAL=2" in (rule or "")
+
+
+def test_interval_extraction_for_every_30_minutes_in_time_range() -> None:
+    rule = _compile_rule(
+        {
+            "reminder_text": "проверить воду",
+            "day_expression": "завтра",
+            "time_expression": None,
+            "date_expression": None,
+            "period_start_expression": "завтра с 10:00",
+            "period_end_expression": "завтра до 12:00",
+            "recurrence_expression": "каждые 30 минут",
+            "recurrence_until_expression": "завтра с 10:00 до 12:00",
+            "recurrence_interval": None,
+            "pre_reminder_expression": None,
+            "raw_context": "создай напоминание каждые 30 минут завтра с 10 до 12 проверить воду",
+        }
+    )
+    assert rule == "FREQ=MINUTELY;INTERVAL=30;UNTIL=2026-05-25T12:00:00"
+
+
+def test_interval_extraction_for_hour_word_time_range() -> None:
+    rule = _compile_rule(
+        {
+            "reminder_text": "периодический тест",
+            "day_expression": "сегодня",
+            "time_expression": None,
+            "date_expression": None,
+            "period_start_expression": "16 часов",
+            "period_end_expression": "17 часов",
+            "recurrence_expression": "каждые 15 минут",
+            "recurrence_until_expression": None,
+            "recurrence_interval": 15,
+            "pre_reminder_expression": None,
+            "raw_context": "Сегодня с 16 часов до 17 часов каждые 15 минут напоминание периодический тест.",
+        }
+    )
+    assert rule == "FREQ=MINUTELY;INTERVAL=15;UNTIL=2026-05-24T17:00:00"
 
 
 def test_interval_extraction_for_every_2_months() -> None:

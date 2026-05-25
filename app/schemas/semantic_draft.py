@@ -10,6 +10,8 @@ class CreateReminderDraft(BaseModel):
     day_expression: str | None = None
     time_expression: str | None = None
     date_expression: str | None = None
+    period_start_expression: str | None = None
+    period_end_expression: str | None = None
     recurrence_expression: str | None = None
     recurrence_until_expression: str | None = None
     recurrence_interval: int | None = Field(default=None, ge=1, le=365)

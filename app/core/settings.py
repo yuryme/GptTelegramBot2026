@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     llm_provider: Literal["openai", "deepseek"] = Field(default="openai")
     openai_api_key: str = Field(default="replace_me")
     openai_model: str = Field(default="gpt-4.1-mini")
+    llm_timeout_seconds: float = Field(default=20.0, gt=0)
+    llm_max_attempts: int = Field(default=1, ge=1)
     stt_provider: Literal["openai", "http", "groq"] = Field(default="openai")
     openai_transcription_model: str = Field(default="gpt-4o-mini-transcribe")
     stt_http_url: str = Field(default="http://127.0.0.1:18100/transcribe")

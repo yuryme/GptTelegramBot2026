@@ -5,15 +5,18 @@
 ## Текущий статус
 
 - Локально работает.
-- Тесты: `55 passed`.
-- Текущее ограничение: лимиты OpenAI.
+- Тесты: `105 passed`.
+- Текстовая LLM в production работает через DeepSeek V4; voice/STT - через Groq Whisper API.
 - Выполнен ручной VPS-деплой в режиме `polling` (без Docker).
 
 ## Ключевой функционал
 
 - Создание напоминаний: одиночные, множественные, цикличные.
-- Для циклических напоминаний используется модель `одна активная основная запись + перенос run_at через reschedule()`.
-- Основная запись циклического напоминания хранит исходный `recurrence_rule`; цикл не разворачивается заранее в пачку основных записей.
+- Для обычного напоминания без времени сохраняется default: `завтра` -> `08:00`.
+- Для bounded periodic-фраз используется период, а не default time: `каждый час в течение завтрашнего дня` -> 24 напоминания с `00:00` по `23:00`.
+- Если часть bounded periodic-периода уже прошла, создаются только будущие слоты.
+- Для конечных циклических напоминаний график материализуется в отдельные обычные reminder rows.
+- Исходная серия и `recurrence_rule` сохраняются отдельно как metadata серии.
 - Для напоминаний с датой начиная с завтра выполняются два уведомления: за 1 час и в due time.
 - Предуведомление за 1 час является внутренним и не отображается в пользовательских списках; для cyclic создается только для ближайшего запуска.
 - Расчет повторов (`FREQ`, `INTERVAL`, `UNTIL`) выполняется единым механизмом; `UNTIL` реально ограничивает цикл.
@@ -57,7 +60,11 @@
 - `Schema-first`: LLM отдает JSON, который валидируется Pydantic-схемами.
 - `Temporal normalization`: смысловая нормализация даты/времени выполняется отдельным слоем после валидации схемы и до бизнес-исполнения.
 - `Semantic draft layer`: for create flows, LLM returns semantic draft JSON first, then deterministic Python compiles draft -> final executable command JSON.
+- Semantic draft compiler normalizes Russian date expressions such as `25 мая 2026` before final Pydantic validation.
 - Текстовая LLM-часть выбирается через `LLM_PROVIDER`; для DeepSeek V4 используется `LLM_PROVIDER=deepseek` и `DEEPSEEK_MODEL=deepseek-v4-flash`.
+- Таймаут и число попыток LLM задаются через `LLM_TIMEOUT_SECONDS` и `LLM_MAX_ATTEMPTS`; production defaults fail-fast (`20s`, `1` attempt), чтобы Telegram update не зависал на минуту при сбоях провайдера.
+- LLM-only contract: смысл пользовательского текста извлекает LLM; Python не распознает пользовательские фразы, а только валидирует JSON, нормализует поля и исполняет команды.
+- Active prompt design uses logical date/time rules plus compact few-shot examples; legacy final-command prompt is marked as legacy.
 - `Internal recurrence policy layer`: semantic draft compiler now builds explicit internal recurrence model (kind/interval/end) before mapping to legacy `recurrence_rule`.
 - `Internal display policy layer`: pre-reminder behavior is represented by an internal display policy model (auto/disabled/minutes_before) without expanding public command JSON.
 - Изменения интерпретации фраз делаются через prompt/схемы, а не через разрастание if/else-логики.
@@ -191,6 +198,7 @@ ssh root@5.255.125.171 "hostname"
 ## Recurring End Policy (Iteration 03+)
 
 - Recurring reminders are no longer open-ended: runtime enforces `UNTIL` for recurring rules if user did not provide explicit end.
+- Bounded recurring periods are materialized into concrete reminder rows; hourly/minutely schedules do not create automatic 1-hour pre-reminder rows.
 - Default deterministic end boundaries:
   - `HOURLY` -> end of start day.
   - `DAILY` -> end of start week (Sunday).

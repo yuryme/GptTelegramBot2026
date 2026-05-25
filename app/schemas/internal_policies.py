@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class RecurrenceKind(str, Enum):
     one_time = "one_time"
+    minutely = "minutely"
     hourly = "hourly"
     daily = "daily"
     weekly = "weekly"
