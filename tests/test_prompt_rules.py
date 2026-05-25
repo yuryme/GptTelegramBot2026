@@ -35,11 +35,15 @@ def test_semantic_prompt_keeps_llm_only_contract() -> None:
     assert "Use ISO datetimes with timezone offset" in SEMANTIC_DRAFT_PROMPT_RU
     assert "Never use legacy keys" in SEMANTIC_DRAFT_PROMPT_RU
     assert "Do not rely on Python phrase parsing" in SEMANTIC_DRAFT_PROMPT_RU
-    assert "never output final fields" in SEMANTIC_DRAFT_PROMPT_RU
+    assert "never output final command fields" in SEMANTIC_DRAFT_PROMPT_RU
+    assert "prefer schedule with normalized ISO datetimes" in SEMANTIC_DRAFT_PROMPT_RU
+    assert "Do not generate an occurrences array" in SEMANTIC_DRAFT_PROMPT_RU
 
 
 def test_semantic_prompt_contains_search_and_recurrence_disambiguation() -> None:
     assert "Search vs date/time" in SEMANTIC_DRAFT_PROMPT_RU
     assert "где упоминается" in SEMANTIC_DRAFT_PROMPT_RU
     assert "каждые N минут" in SEMANTIC_DRAFT_PROMPT_RU
+    assert "каждые полчаса" in SEMANTIC_DRAFT_PROMPT_RU
+    assert "frequency=\"minutely\"" in SEMANTIC_DRAFT_PROMPT_RU
     assert "до следующей недели" in SEMANTIC_DRAFT_PROMPT_RU

@@ -55,15 +55,17 @@ Top-level schema:
 {"intent":"create_reminders|list_reminders|delete_reminders","create_items":[],"passthrough_command":object|null}
 
 Create item schema:
-{"reminder_text":"string","day_expression":"string|null","time_expression":"string|null","date_expression":"string|null","period_start_expression":"string|null","period_end_expression":"string|null","recurrence_expression":"string|null","recurrence_until_expression":"string|null","recurrence_interval":"int|null","pre_reminder_expression":"string|null","raw_context":"string|null"}
+{"reminder_text":"string","schedule":{"kind":"once|recurring","start_at":"ISO datetime with timezone","end_at":"ISO datetime with timezone|null","frequency":"minutely|hourly|daily|weekly|monthly|null","interval":"int|null","weekdays":"int[]|null","month_day":"int|null"}|null,"day_expression":"string|null","time_expression":"string|null","date_expression":"string|null","period_start_expression":"string|null","period_end_expression":"string|null","recurrence_expression":"string|null","recurrence_until_expression":"string|null","recurrence_interval":"int|null","pre_reminder_expression":"string|null","raw_context":"string|null"}
 
 Rules:
 - JSON only. No markdown, comments, explanations, or extra keys.
 - create_reminders: fill create_items; passthrough_command=null.
 - list_reminders/delete_reminders: create_items=[]; passthrough_command is final command JSON.
-- For create_reminders, never output final fields: reminders, run_at, day_reference, weekday, date_value, time, recurrence_rule.
+- For create_reminders, prefer schedule with normalized ISO datetimes. Legacy expression fields are fallback/context only.
+- For create_reminders, never output final command fields: reminders, run_at, day_reference, date_value, time, recurrence_rule.
 - Use null for absent optional fields.
 - Use ISO datetimes with timezone offset from the current local datetime when building from_dt/to_dt.
+- Resolve relative create dates/times yourself: today/tomorrow/weekday/month names -> concrete ISO datetimes with timezone.
 - For list/delete, Python will validate passthrough_command but will not infer missing ranges.
 
 Date/time range logic for list/delete:
@@ -112,6 +114,14 @@ Range examples if current local datetime is 2026-05-24T20:31:00+03:00:
 - "Покажи напоминания где упоминается завтра" -> {"intent":"list_reminders","create_items":[],"passthrough_command":{"command":"list_reminders","mode":"search","search_text":"завтра"}}
 
 Create/recurrence rules:
+- Preferred create schedule:
+  - One-time reminder -> schedule.kind="once", start_at=<exact ISO datetime>, end_at=null, frequency=null, interval=null.
+  - Recurring reminder -> schedule.kind="recurring", start_at=<first occurrence ISO>, end_at=<inclusive last boundary ISO>, frequency and interval set.
+  - "каждые полчаса" -> frequency="minutely", interval=30.
+  - "каждые N минут" -> frequency="minutely", interval=N.
+  - "каждый час" / "каждые N часов" -> frequency="hourly", interval=N or 1.
+  - For weekly recurrence, weekdays use Monday=0..Sunday=6.
+  - Do not generate an occurrences array; Python expands schedule.
 - Do not lose reminder text while extracting temporal expressions.
 - For recurrence phrases, fill recurrence_expression and optional recurrence_until_expression / recurrence_interval.
 - "каждые N минут/часов/дней/недель/месяцев" -> recurrence_expression contains the phrase; recurrence_interval=N.
@@ -122,7 +132,8 @@ Create/recurrence rules:
 - Do not invent dates for vague recurrence ends like "до следующей недели"; keep the exact phrase in recurrence_until_expression.
 - For delivery hints like "за час до" or "без преднапоминания", fill pre_reminder_expression.
 
-Create examples:
-- "Завтра напомни, что встреча в пятницу в 15" -> {"intent":"create_reminders","create_items":[{"reminder_text":"встреча в пятницу в 15","day_expression":"завтра","time_expression":null,"date_expression":null,"period_start_expression":null,"period_end_expression":null,"recurrence_expression":null,"recurrence_until_expression":null,"recurrence_interval":null,"pre_reminder_expression":null,"raw_context":"Завтра напомни, что встреча в пятницу в 15"}],"passthrough_command":null}
-- "Каждые 30 минут завтра с 10 до 12 проверять воду" -> {"intent":"create_reminders","create_items":[{"reminder_text":"проверять воду","day_expression":"завтра","time_expression":null,"date_expression":null,"period_start_expression":"завтра с 10","period_end_expression":"завтра до 12","recurrence_expression":"каждые 30 минут","recurrence_until_expression":"завтра с 10 до 12","recurrence_interval":30,"pre_reminder_expression":null,"raw_context":"Каждые 30 минут завтра с 10 до 12 проверять воду"}],"passthrough_command":null}
+Create examples if current local datetime is 2026-05-25T13:06:00+03:00:
+- "Завтра напомни, что встреча в пятницу в 15" -> {"intent":"create_reminders","create_items":[{"reminder_text":"встреча в пятницу в 15","schedule":{"kind":"once","start_at":"2026-05-26T08:00:00+03:00","end_at":null,"frequency":null,"interval":null,"weekdays":null,"month_day":null},"day_expression":"завтра","time_expression":null,"date_expression":null,"period_start_expression":null,"period_end_expression":null,"recurrence_expression":null,"recurrence_until_expression":null,"recurrence_interval":null,"pre_reminder_expression":null,"raw_context":"Завтра напомни, что встреча в пятницу в 15"}],"passthrough_command":null}
+- "Сегодня с 13.00 по 18.00 каждые полчаса создать напоминание пить воду" -> {"intent":"create_reminders","create_items":[{"reminder_text":"пить воду","schedule":{"kind":"recurring","start_at":"2026-05-25T13:00:00+03:00","end_at":"2026-05-25T18:00:00+03:00","frequency":"minutely","interval":30,"weekdays":null,"month_day":null},"day_expression":"сегодня","time_expression":null,"date_expression":"2026-05-25","period_start_expression":"2026-05-25T13:00:00+03:00","period_end_expression":"2026-05-25T18:00:00+03:00","recurrence_expression":"каждые полчаса","recurrence_until_expression":"2026-05-25T18:00:00+03:00","recurrence_interval":30,"pre_reminder_expression":null,"raw_context":"Сегодня с 13.00 по 18.00 каждые полчаса создать напоминание пить воду"}],"passthrough_command":null}
+- "Каждые 30 минут завтра с 10 до 12 проверять воду" -> {"intent":"create_reminders","create_items":[{"reminder_text":"проверять воду","schedule":{"kind":"recurring","start_at":"2026-05-26T10:00:00+03:00","end_at":"2026-05-26T12:00:00+03:00","frequency":"minutely","interval":30,"weekdays":null,"month_day":null},"day_expression":"завтра","time_expression":null,"date_expression":"2026-05-26","period_start_expression":"2026-05-26T10:00:00+03:00","period_end_expression":"2026-05-26T12:00:00+03:00","recurrence_expression":"каждые 30 минут","recurrence_until_expression":"2026-05-26T12:00:00+03:00","recurrence_interval":30,"pre_reminder_expression":null,"raw_context":"Каждые 30 минут завтра с 10 до 12 проверять воду"}],"passthrough_command":null}
 """.strip()

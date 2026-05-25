@@ -5,7 +5,7 @@
 ## Текущий статус
 
 - Локально работает.
-- Тесты: `105 passed`.
+- Тесты: `107 passed`.
 - Текстовая LLM в production работает через DeepSeek V4; voice/STT - через Groq Whisper API.
 - Выполнен ручной VPS-деплой в режиме `polling` (без Docker).
 
@@ -65,6 +65,7 @@
 - Таймаут и число попыток LLM задаются через `LLM_TIMEOUT_SECONDS` и `LLM_MAX_ATTEMPTS`; production defaults fail-fast (`20s`, `1` attempt), чтобы Telegram update не зависал на минуту при сбоях провайдера.
 - LLM-only contract: смысл пользовательского текста извлекает LLM; Python не распознает пользовательские фразы, а только валидирует JSON, нормализует поля и исполняет команды.
 - Active prompt design uses logical date/time rules plus compact few-shot examples; legacy final-command prompt is marked as legacy.
+- Create reminders prefer a strict normalized `schedule` object with ISO datetimes; legacy expression fields remain as fallback/context.
 - List commands support combined LLM filters such as date range + status (`today` + `pending`) through `mode=range` with `status`.
 - `Internal recurrence policy layer`: semantic draft compiler now builds explicit internal recurrence model (kind/interval/end) before mapping to legacy `recurrence_rule`.
 - `Internal display policy layer`: pre-reminder behavior is represented by an internal display policy model (auto/disabled/minutes_before) without expanding public command JSON.

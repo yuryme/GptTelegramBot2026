@@ -6,7 +6,7 @@
 - [x] Выбран подход: поэтапная разработка от простого к сложному.
 - [x] Согласован финальный деплой на арендованный VPS.
 - [x] Локальная разработка и проверка: работает стабильно.
-- [x] Актуальные автотесты: `105 passed`.
+- [x] Актуальные автотесты: `107 passed`.
 - [x] Фактический VPS-деплой выполнен (ручной, polling, без Docker).
 - [x] Управление VPS-сервисом переведено на SSH-key-only без хранения пароля в скрипте.
 - [x] Текстовая LLM-часть подготовлена к переключению на DeepSeek V4 (`deepseek-v4-flash`).
@@ -334,6 +334,15 @@
 - [x] Teach the active prompt to express date/time + status/search as a combined `mode=range` passthrough command.
 - [x] Add prompt contract coverage for `на сегодня в статусе ожидании`.
 - [ ] Deploy combined-filter prompt to VPS and run smoke checks.
+
+## Stage 36. Strict normalized schedule contract
+
+- [x] Add preferred `schedule` object to semantic create draft (`once|recurring`, ISO `start_at`/`end_at`, frequency, interval, weekdays, month_day).
+- [x] Teach compiler to use `schedule` before legacy expression fields.
+- [x] Keep legacy expression fields as fallback/context to avoid breaking existing prompts.
+- [x] Update active prompt to require normalized ISO datetimes for create schedules and avoid occurrence arrays.
+- [x] Add regression coverage for one-time schedule and `каждые полчаса` recurring schedule.
+- [ ] Deploy strict schedule contract to VPS and run smoke checks.
 
 ## Stage 31. Russian semantic date expression hotfix
 

@@ -16,7 +16,7 @@ from app.schemas.internal_policies import (
     RecurrenceEndKind,
     RecurrenceKind,
 )
-from app.schemas.semantic_draft import CreateReminderDraft, SemanticCommandDraft
+from app.schemas.semantic_draft import CreateReminderDraft, ScheduleDraft, SemanticCommandDraft
 from app.services.recurring_end_policy import detect_end_intent, extract_interval_from_text
 
 
@@ -87,6 +87,9 @@ class SemanticDraftCompiler:
             date_expression=item.date_expression,
             recurrence_expression=item.recurrence_expression,
         )
+        if item.schedule is not None:
+            return self._compile_scheduled_item(item=item, cleaned_text=cleaned_text)
+
         result: dict[str, object] = {
             "text": cleaned_text,
             "explicit_time_provided": False,
@@ -134,6 +137,67 @@ class SemanticDraftCompiler:
 
         display = self._compile_display_policy(item=item, user_time=normalized_time)
         return CompiledCreateReminderPlan(reminder_payload=result, recurrence=recurrence, display=display)
+
+    def _compile_scheduled_item(self, *, item: CreateReminderDraft, cleaned_text: str) -> CompiledCreateReminderPlan:
+        schedule = item.schedule
+        assert schedule is not None
+
+        result: dict[str, object] = {
+            "text": cleaned_text,
+            "run_at": schedule.start_at,
+            "explicit_time_provided": True,
+        }
+        recurrence = self._compile_schedule_recurrence(schedule)
+        if recurrence.legacy_rule:
+            result["recurrence_rule"] = recurrence.legacy_rule
+        display = self._compile_display_policy(
+            item=item,
+            user_time=schedule.start_at.strftime("%H:%M"),
+        )
+        return CompiledCreateReminderPlan(reminder_payload=result, recurrence=recurrence, display=display)
+
+    def _compile_schedule_recurrence(self, schedule: ScheduleDraft) -> InternalRecurrencePolicy:
+        if schedule.kind == "once":
+            return InternalRecurrencePolicy(
+                kind=RecurrenceKind.one_time,
+                interval=1,
+                end_kind=RecurrenceEndKind.never,
+                end_intent=None,
+                legacy_rule=None,
+            )
+
+        frequency_to_kind = {
+            "minutely": RecurrenceKind.minutely,
+            "hourly": RecurrenceKind.hourly,
+            "daily": RecurrenceKind.daily,
+            "weekly": RecurrenceKind.weekly,
+            "monthly": RecurrenceKind.monthly,
+        }
+        if schedule.frequency is None:
+            raise SemanticDraftCompilationError("recurring schedule must include frequency")
+        kind = frequency_to_kind[schedule.frequency]
+        interval = schedule.interval or 1
+        weekdays = schedule.weekdays or []
+        month_day = schedule.month_day
+        legacy_rule = self._build_legacy_rule(
+            kind=kind,
+            interval=interval,
+            until=schedule.end_at,
+            end_intent=RecurrenceEndIntent.until_datetime if schedule.end_at else None,
+            end_expression=None,
+            weekdays=weekdays,
+            month_day=month_day,
+        )
+        return InternalRecurrencePolicy(
+            kind=kind,
+            interval=interval,
+            weekdays=weekdays,
+            month_day=month_day,
+            end_kind=RecurrenceEndKind.until_datetime if schedule.end_at else RecurrenceEndKind.never,
+            end_intent=RecurrenceEndIntent.until_datetime if schedule.end_at else None,
+            until=schedule.end_at,
+            legacy_rule=legacy_rule,
+        )
 
     def _compile_recurrence_policy(
         self,
