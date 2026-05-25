@@ -84,6 +84,8 @@ List passthrough forms:
 - {"command":"list_reminders","mode":"status","status":"pending|done|deleted"}
 - {"command":"list_reminders","mode":"search","search_text":"..."}
 - {"command":"list_reminders","mode":"range","from_dt":"ISO datetime","to_dt":"ISO datetime"}
+- Combined list filters are allowed: for date/time + status/search use mode="range" and include status/search_text.
+- Russian status mapping: "в ожидании", "ожидающие", "активные" -> pending; "выполненные" -> done; "удаленные" -> deleted.
 
 Delete passthrough forms:
 - {"command":"delete_reminders","mode":"filter","reminder_id":123}
@@ -101,6 +103,7 @@ Search vs date/time:
 
 Range examples if current local datetime is 2026-05-24T20:31:00+03:00:
 - "Показать все напоминания сегодня после 21 часа" -> {"intent":"list_reminders","create_items":[],"passthrough_command":{"command":"list_reminders","mode":"range","from_dt":"2026-05-24T21:00:00+03:00","to_dt":"2026-05-24T23:59:59+03:00"}}
+- "Показать все напоминания на сегодня в статусе ожидании" -> {"intent":"list_reminders","create_items":[],"passthrough_command":{"command":"list_reminders","mode":"range","status":"pending","from_dt":"2026-05-24T00:00:00+03:00","to_dt":"2026-05-24T23:59:59+03:00"}}
 - "Удалить все напоминания сегодня после 21 часа" -> {"intent":"delete_reminders","create_items":[],"passthrough_command":{"command":"delete_reminders","mode":"filter","from_dt":"2026-05-24T21:00:00+03:00","to_dt":"2026-05-24T23:59:59+03:00","confirm_delete_all":true}}
 - "Удалить все напоминания сегодня до 21 часа" -> {"intent":"delete_reminders","create_items":[],"passthrough_command":{"command":"delete_reminders","mode":"filter","from_dt":"2026-05-24T00:00:00+03:00","to_dt":"2026-05-24T21:00:00+03:00","confirm_delete_all":true}}
 - "Удалить напоминания после 27 мая 2026 года" -> {"intent":"delete_reminders","create_items":[],"passthrough_command":{"command":"delete_reminders","mode":"filter","from_dt":"2026-05-28T00:00:00+03:00","to_dt":"2099-12-31T23:59:59+03:00","confirm_delete_all":true}}

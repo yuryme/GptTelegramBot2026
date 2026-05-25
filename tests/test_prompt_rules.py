@@ -21,6 +21,9 @@ def test_semantic_prompt_contains_list_delete_range_contract() -> None:
     assert "confirm_delete_all=true" in SEMANTIC_DRAFT_PROMPT_RU
     assert "сегодня после 21 часа" in SEMANTIC_DRAFT_PROMPT_RU
     assert "сегодня до 21 часа" in SEMANTIC_DRAFT_PROMPT_RU
+    assert "Combined list filters" in SEMANTIC_DRAFT_PROMPT_RU
+    assert "на сегодня в статусе ожидании" in SEMANTIC_DRAFT_PROMPT_RU
+    assert '"status":"pending"' in SEMANTIC_DRAFT_PROMPT_RU
     assert "после <date>" in SEMANTIC_DRAFT_PROMPT_RU
     assert "с <date>" in SEMANTIC_DRAFT_PROMPT_RU
     assert "включительно" in SEMANTIC_DRAFT_PROMPT_RU

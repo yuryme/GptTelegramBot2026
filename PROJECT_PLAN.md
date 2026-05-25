@@ -328,6 +328,13 @@
 - [x] Update prompt contract tests.
 - [ ] Deploy consolidated prompt to VPS and run smoke checks.
 
+## Stage 35. Combined list filter prompt fix
+
+- [x] Diagnose `today + pending` list query returning future pending reminders as a prompt/contract issue.
+- [x] Teach the active prompt to express date/time + status/search as a combined `mode=range` passthrough command.
+- [x] Add prompt contract coverage for `на сегодня в статусе ожидании`.
+- [ ] Deploy combined-filter prompt to VPS and run smoke checks.
+
 ## Stage 31. Russian semantic date expression hotfix
 
 - [x] Diagnose create-reminder failure as compiler validation error for `date_expression="25 мая 2026"`.
