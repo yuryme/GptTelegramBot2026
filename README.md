@@ -8,7 +8,7 @@
 - Тесты: `107 passed`.
 - Текстовая LLM в production работает через DeepSeek V4; voice/STT - через Groq Whisper API.
 - Выполнен ручной VPS-деплой в режиме `polling` (без Docker).
-- Согласован, но еще не реализован MVP выдачи методических материалов: сбор имени/e-mail в Telegram, явное согласие, Gmail SMTP-вложение и синхронизация с Google Sheets. ТЗ: `docs/tasks/active/2026-08-12_customer_to_manager_material_delivery_mvp.md`.
+- Согласован, но еще не реализован закрытый MVP выдачи методических материалов: сбор имени/e-mail в Telegram, явное согласие с контактом для отзыва, Gmail SMTP-вложение и синхронизация с Google Sheets. Публичная политика отложена до открытого запуска. ТЗ: `docs/tasks/active/2026-08-12_customer_to_manager_material_delivery_mvp.md`.
 
 ## Ключевой функционал
 
