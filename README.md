@@ -8,6 +8,7 @@
 - Тесты: `107 passed`.
 - Текстовая LLM в production работает через DeepSeek V4; voice/STT - через Groq Whisper API.
 - Выполнен ручной VPS-деплой в режиме `polling` (без Docker).
+- Согласован, но еще не реализован MVP выдачи методических материалов: сбор имени/e-mail в Telegram, явное согласие, Gmail SMTP-вложение и синхронизация с Google Sheets. ТЗ: `docs/tasks/active/2026-08-12_customer_to_manager_material_delivery_mvp.md`.
 
 ## Ключевой функционал
 
@@ -190,6 +191,7 @@ ssh root@5.255.125.171 "hostname"
 - План проекта: `PROJECT_PLAN.md`
 - Локальный чек-лист: `docs/LOCAL_TESTING.md`
 - Реестр ТЗ и согласований: `docs/tasks/INDEX.md`
+- Согласованное ТЗ на MVP выдачи материалов: `docs/tasks/active/2026-08-12_customer_to_manager_material_delivery_mvp.md`
 - Правила хранения ТЗ: `docs/tasks/README.md`
 - Шаблон нового ТЗ: `docs/tasks/templates/TASK_TEMPLATE.md`
 - VPS-деплой: `deploy/DEPLOY_VPS.md`

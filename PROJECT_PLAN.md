@@ -364,3 +364,15 @@
 - [x] Skip already-past slots when creating bounded recurring schedules for today.
 - [x] Disable automatic 1-hour pre-reminders for hourly/minutely recurring schedules to avoid duplicate notification streams.
 - [ ] Deploy recurring period materialization to VPS and run Telegram smoke tests.
+
+## Stage 37. Methodical material delivery MVP
+
+- [x] Agree the MVP scope: current Telegram bot, conversational data collection, Gmail SMTP attachment, Google Apps Script webhook, PostgreSQL source of truth, and manual file placement on VPS.
+- [x] Document user flow, privacy requirements, failure handling, acceptance criteria, implementation estimate, and operating limits in `docs/tasks/active/2026-08-12_customer_to_manager_material_delivery_mvp.md`.
+- [ ] Collect required inputs: material file, email copy, sender Gmail App Password, Google Sheet, consent text, and public privacy-policy URL.
+- [ ] Add `material_deliveries` persistence model and Alembic migration.
+- [ ] Add deterministic Telegram FSM and campaign deep-link handling without routing contact data through LLM.
+- [ ] Add Gmail SMTP attachment delivery with idempotency and delivery statuses.
+- [ ] Add protected Google Apps Script webhook synchronization with retryable status.
+- [ ] Add automated tests for success, validation, consent, provider failures, and duplicate submission.
+- [ ] Update env templates and deployment instructions, then deploy and run Telegram/VPS smoke checks.
