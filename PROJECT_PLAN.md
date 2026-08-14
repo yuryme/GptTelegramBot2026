@@ -377,3 +377,9 @@
 - [ ] Add protected Google Apps Script webhook synchronization with retryable status.
 - [ ] Add automated tests for success, validation, consent, provider failures, and duplicate submission.
 - [ ] Update env templates and deployment instructions, then deploy and run Telegram/VPS smoke checks.
+
+## Stage 38. Session handoff context
+
+- [x] Persist verified production diagnostics, agreed MVP decisions, integration setup status, unresolved choices, and next steps in `docs/SESSION_CONTEXT.md` without secrets.
+- [x] Link the session context from `README.md`.
+- [ ] Refresh `docs/SESSION_CONTEXT.md` after material-delivery implementation or any material production configuration change.

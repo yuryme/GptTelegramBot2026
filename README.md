@@ -189,6 +189,7 @@ ssh root@5.255.125.171 "hostname"
 ## Документация
 
 - План проекта: `PROJECT_PLAN.md`
+- Контекст последней рабочей сессии: `docs/SESSION_CONTEXT.md`
 - Локальный чек-лист: `docs/LOCAL_TESTING.md`
 - Реестр ТЗ и согласований: `docs/tasks/INDEX.md`
 - Согласованное ТЗ на MVP выдачи материалов: `docs/tasks/active/2026-08-12_customer_to_manager_material_delivery_mvp.md`
